@@ -88,9 +88,9 @@ dat.BE$targets <- dat.BE$targets %>%
 ## Genes significant for allergen challenge (Post - Pre)
 
 ```{r echo=FALSE}
-summarise_lmFit(lm_visit_BAL$lm, fdr.cutoff = c(0.05,0.1,0.3)) %>% 
+summarise_lmFit(lm_visit_BAL$lm, fdr.cutoff = c(0.05,0.1,0.3), FCgroup = TRUE) %>% 
   mutate(sample = "BAL", .before = variable) %>% 
-  bind_rows(summarise_lmFit(lm_visit_BE$lm, fdr.cutoff = c(0.05,0.1,0.3)) %>% 
+  bind_rows(summarise_lmFit(lm_visit_BE$lm, fdr.cutoff = c(0.05,0.1,0.3), FCgroup = TRUE) %>% 
               mutate(sample = "BE", .before = variable)) %>% 
   rename_all(~gsub("_", " < ", .)) %>% 
   filter(variable == "visit") %>% 
@@ -110,9 +110,9 @@ plot_venn_genes(model_result = list("BAL "=lm_visit_BAL$lm,
 Data were filtered to genes significant for allergen challenge at FDR < 0.3. Samples were filtered to only Post allergen challenge as most Pre samples contained 0% eosinophils.
 
 ```{r echo=FALSE}
-summarise_lmFit(lm_eos_BAL$lm, fdr.cutoff = c(0.05,0.1,0.3)) %>% 
+summarise_lmFit(lm_eos_BAL$lm, fdr.cutoff = c(0.05,0.1,0.3), FCgroup = TRUE) %>% 
   mutate(sample = "BAL", .before = variable) %>% 
-  bind_rows(summarise_lmFit(lm_eos_BE$lm, fdr.cutoff = c(0.05,0.1,0.3)) %>% 
+  bind_rows(summarise_lmFit(lm_eos_BE$lm, fdr.cutoff = c(0.05,0.1,0.3), FCgroup = TRUE) %>% 
               mutate(sample = "BE", .before = variable)) %>% 
   rename_all(~gsub("_", " < ", .)) %>% 
   filter(variable == "EOS.pct") %>% 
@@ -132,9 +132,9 @@ plot_venn_genes(model_result = list("BAL "=lm_eos_BAL$lm,
 As with eosinophil models, data were filtered to genes significant for allergen challenge (FDR < 0.3) and Post allergen challenge samples.
 
 ```{r echo=FALSE}
-summarise_lmFit(lm_feno_BAL$lm, fdr.cutoff = c(0.05,0.1,0.3)) %>% 
+summarise_lmFit(lm_feno_BAL$lm, fdr.cutoff = c(0.05,0.1,0.3), FCgroup = TRUE) %>% 
   mutate(sample = "BAL", .before = variable) %>% 
-  bind_rows(summarise_lmFit(lm_feno_BE$lm, fdr.cutoff = c(0.05,0.1,0.3)) %>% 
+  bind_rows(summarise_lmFit(lm_feno_BE$lm, fdr.cutoff = c(0.05,0.1,0.3), FCgroup = TRUE) %>% 
               mutate(sample = "BE", .before = variable)) %>% 
   rename_all(~gsub("_", " < ", .)) %>% 
   filter(variable == "FeNO") %>% 
@@ -259,9 +259,9 @@ enrich.all %>%
 ```
 
 # Comparing gene expression in BAL and BE
-## Genes significant for eosinophils and/or FeNO
+## Eosinophils
 
-Allergen challenge (FDR < 0.3) and eosinophil significant (FDR 0.1) genes in BAL vs BE. As expected, genes can be grouped into those that positively associate with eosinophils in both BAL and BE (positive correlation) and those that have oppositive directionality in BAL and BE (negative correlation).
+Allergen challenge (FDR < 0.3) and eosinophil significant (FDR 0.1) genes in BAL vs BE. As expected, genes can be grouped into those that positively associate with eosinophils in both BAL and BE (positive correlation) and those that have opposite directionality in BAL and BE (negative correlation).
 
 ```{r}
 dat.BAL.rename <- as.data.frame(dat.BAL$E) %>% 
@@ -270,7 +270,8 @@ dat.BAL.rename <- as.data.frame(dat.BAL$E) %>%
   left_join(dat.BAL$targets %>% 
               select(libID, donorID, visit)) %>% 
   filter(visit == "Post") %>% 
-  select(gene, donorID, value)
+  select(gene, donorID, value) %>% 
+  mutate(gene = paste("BAL",gene,sep="_"))
 
 dat.BE.rename <- as.data.frame(dat.BE$E) %>% 
   rownames_to_column("gene") %>% 
@@ -278,63 +279,84 @@ dat.BE.rename <- as.data.frame(dat.BE$E) %>%
   left_join(dat.BE$targets %>% 
               select(libID, donorID, visit)) %>% 
   filter(visit == "Post") %>% 
-  select(gene, donorID, value)
+  select(gene, donorID, value) %>% 
+  mutate(gene = paste("BE",gene,sep="_"))
 ```
 
 ```{r}
 #EOS signif genes
 BAL_eos_0.1_up <- lm_eos_BAL$lm %>% 
   filter(variable == "EOS.pct" & FDR < 0.1 & estimate > 0) %>% 
+  mutate(gene = paste("BAL",gene,sep="_")) %>% 
   pull(gene)
 BAL_eos_0.1_dn <- lm_eos_BAL$lm %>% 
   filter(variable == "EOS.pct" & FDR < 0.1 & estimate < 0) %>% 
+  mutate(gene = paste("BAL",gene,sep="_")) %>% 
   pull(gene)
 BE_eos_0.1_up <- lm_eos_BE$lm %>% 
   filter(variable == "EOS.pct" & FDR < 0.1 & estimate > 0) %>% 
+  mutate(gene = paste("BE",gene,sep="_")) %>% 
   pull(gene)
 BE_eos_0.1_dn <- lm_eos_BE$lm %>% 
   filter(variable == "EOS.pct" & FDR < 0.1 & estimate < 0) %>% 
+  mutate(gene = paste("BE",gene,sep="_")) %>% 
   pull(gene)
 
 #FeNO signif genes
-BAL_feno_0.1 <- lm_feno_BAL$lm %>% 
-  filter(variable == "FeNO" & FDR < 0.1) %>% 
+BAL_feno_0.1_up <- lm_feno_BAL$lm %>% 
+  filter(variable == "FeNO" & FDR < 0.1 & estimate > 0) %>% 
+  mutate(gene = paste("BAL",gene,sep="_")) %>% 
   pull(gene)
-BE_feno_0.1 <- lm_feno_BE$lm %>% 
-  filter(variable == "FeNO" & FDR < 0.1) %>% 
+BAL_feno_0.1_dn <- lm_feno_BAL$lm %>% 
+  filter(variable == "FeNO" & FDR < 0.1 & estimate < 0) %>% 
+  mutate(gene = paste("BAL",gene,sep="_")) %>% 
+  pull(gene)
+BE_feno_0.1_up <- lm_feno_BE$lm %>% 
+  filter(variable == "FeNO" & FDR < 0.1 & estimate > 0) %>% 
+  mutate(gene = paste("BE",gene,sep="_")) %>% 
+  pull(gene)
+BE_feno_0.1_dn <- lm_feno_BE$lm %>% 
+  filter(variable == "FeNO" & FDR < 0.1 & estimate < 0) %>% 
+  mutate(gene = paste("BE",gene,sep="_")) %>% 
   pull(gene)
 
+save(BAL_eos_0.1_up,BAL_eos_0.1_dn,BE_eos_0.1_up,BE_eos_0.1_dn,
+     BAL_feno_0.1_up,BAL_feno_0.1_dn,BE_feno_0.1_up,BE_feno_0.1_dn,
+     file="results/signif_gene_lists.RData")
+```
+
+```{r}
 #Combine 
 temp <- dat.BAL.rename %>% 
   filter(gene %in% c(BAL_eos_0.1_up, BAL_eos_0.1_dn)) %>% 
   mutate(EOS = ifelse(gene %in% c(BAL_eos_0.1_up, BAL_eos_0.1_dn), "FDR < 0.1", "NS"),
-         FeNO = ifelse(gene %in% BAL_feno_0.1, "FDR < 0.1", "NS")) %>% 
-  mutate(gene_label = paste("BAL",gene, sep = "_")) 
+         FeNO = ifelse(gene %in% c(BAL_feno_0.1_up, BAL_feno_0.1_dn), "FDR < 0.1", "NS"))
 
 dat.visit.all.rename <- dat.BE.rename %>% 
   filter(gene %in% c(BE_eos_0.1_up, BE_eos_0.1_dn)) %>% 
   mutate(EOS = ifelse(gene %in% c(BE_eos_0.1_up, BE_eos_0.1_dn), "FDR < 0.1", "NS"),
-         FeNO = ifelse(gene %in% BE_feno_0.1, "FDR < 0.1", "NS")) %>% 
-  mutate(gene_label = paste("BE",gene, sep = "_"))  %>% 
+         FeNO = ifelse(gene %in% c(BE_feno_0.1_up, BE_feno_0.1_dn), "FDR < 0.1", "NS")) %>% 
   bind_rows(temp) %>% 
   arrange(donorID) %>% 
   pivot_wider(names_from = donorID) 
+```
 
+```{r}
 hm.mat.up <- dat.visit.all.rename %>% 
   select_if(~all(!is.na(.))) %>%
   filter(gene %in% c(BAL_eos_0.1_up,BE_eos_0.1_up))
 
 hm.mat.up.mat <- hm.mat.up %>% 
-  select(-EOS, -FeNO, -gene) %>% 
-  column_to_rownames("gene_label")
+  select(-EOS, -FeNO) %>% 
+  column_to_rownames("gene")
 
 hm.mat.dn <- dat.visit.all.rename %>% 
   select_if(~all(!is.na(.))) %>%
   filter(gene %in% c(BAL_eos_0.1_dn,BE_eos_0.1_dn)) 
 
 hm.mat.dn.mat <- hm.mat.dn %>% 
-  select(-EOS, -FeNO, -gene) %>% 
-  column_to_rownames("gene_label")
+  select(-EOS, -FeNO) %>% 
+  column_to_rownames("gene")
 ```
 
 ```{r}
@@ -382,16 +404,18 @@ corr.dn.R <- as.data.frame(corr.dn$r) %>%
 
 #### Genes positively associated with eosinophils
 
+There is additional notation if the gene was also significant for FeNO but this figure does not contain all FeNo significant genes.
+
 ```{r fig.height=8}
 col.anno <- HeatmapAnnotation(
-  `BE EOS FDR < 0.1` = filter(hm.mat.up, grepl("BE_", gene_label))$EOS,
-  `BE FeNO FDR < 0.1` = filter(hm.mat.up, grepl("BE_", gene_label))$FeNO,
+  `BE EOS FDR < 0.1` = filter(hm.mat.up, grepl("BE_", gene))$EOS,
+  `BE FeNO FDR < 0.1` = filter(hm.mat.up, grepl("BE_", gene))$FeNO,
   col = list(`BE EOS FDR < 0.1` = c("FDR < 0.1" = "#E1BE6A", "NS" = "white"),
              `BE FeNO FDR < 0.1` = c("FDR < 0.1" = "#40B0A6", "NS" = "white")), 
         show_legend = c(FALSE,FALSE))
 row.anno <- rowAnnotation(
-  `BAL EOS FDR < 0.1` = filter(hm.mat.up, grepl("BAL_", gene_label))$EOS,
-  `BAL FeNO FDR < 0.1` = filter(hm.mat.up, grepl("BAL_", gene_label))$FeNO,
+  `BAL EOS FDR < 0.1` = filter(hm.mat.up, grepl("BAL_", gene))$EOS,
+  `BAL FeNO FDR < 0.1` = filter(hm.mat.up, grepl("BAL_", gene))$FeNO,
   col = list(`BAL EOS FDR < 0.1` = c("FDR < 0.1" = "#E1BE6A", "NS" = "white"),
              `BAL FeNO FDR < 0.1` = c("FDR < 0.1" = "#40B0A6", "NS" = "white")), 
         show_legend = c(FALSE,FALSE))
@@ -405,16 +429,18 @@ hm.up <- draw(hm.up)
 
 #### Genes negatively associated with eosinophils
 
+There is additional notation if the gene was also significant for FeNO but this figure does not contain all FeNo significant genes.
+
 ```{r fig.height=8}
 col.anno2 <- HeatmapAnnotation(
-  `BE EOS FDR < 0.1` = filter(hm.mat.dn, grepl("BE_", gene_label))$EOS,
-  `BE FeNO FDR < 0.1` = filter(hm.mat.dn, grepl("BE_", gene_label))$FeNO,
+  `BE EOS FDR < 0.1` = filter(hm.mat.dn, grepl("BE_", gene))$EOS,
+  `BE FeNO FDR < 0.1` = filter(hm.mat.dn, grepl("BE_", gene))$FeNO,
   col = list(`BE EOS FDR < 0.1` = c("FDR < 0.1" = "#E1BE6A", "NS" = "white"),
              `BE FeNO FDR < 0.1` = c("FDR < 0.1" = "#40B0A6", "NS" = "white")), 
         show_legend = c(FALSE,FALSE))
 row.anno2 <- rowAnnotation(
-  `BAL EOS FDR < 0.1` = filter(hm.mat.dn, grepl("BAL_", gene_label))$EOS,
-  `BAL FeNO FDR < 0.1` = filter(hm.mat.dn, grepl("BAL_", gene_label))$FeNO,
+  `BAL EOS FDR < 0.1` = filter(hm.mat.dn, grepl("BAL_", gene))$EOS,
+  `BAL FeNO FDR < 0.1` = filter(hm.mat.dn, grepl("BAL_", gene))$FeNO,
   col = list(`BAL EOS FDR < 0.1` = c("FDR < 0.1" = "#E1BE6A", "NS" = "white"),
              `BAL FeNO FDR < 0.1` = c("FDR < 0.1" = "#40B0A6", "NS" = "white")), 
         show_legend = c(FALSE,FALSE))
@@ -426,57 +452,184 @@ hm.dn <- Heatmap(corr.dn.R, top_annotation = col.anno2, left_annotation = row.an
 hm.dn <- draw(hm.dn)
 ```
 
-### Heatmap results files
+## FeNO
 
-See `correlation_heatmap_clusters.csv` for gene membership in each cluster. The two heatmaps are designated as `eos_up` and `eos_down`
+Allergen challenge (FDR < 0.3) and FeNO significant (FDR 0.1) genes in BAL vs BE. As expected, genes can be grouped into those that positively associate with FeNO in both BAL and BE (positive correlation) and those that have opposite directionality in BAL and BE (negative correlation).
 
 ```{r}
-#get clusters, rows
-cluster.row <- data.frame()
-for (i in 1:length(row_order(hm.up))){
-  cluster.row <- t(t(row.names(corr.up.R[row_order(hm.up)[[as.character(i)]],]))) %>% 
-    as.data.frame() %>% 
-    mutate(heatmap = "eos_up",
-           cluster = paste("BAL_row_cluster", i, sep="")) %>% 
-    rename(gene=V1) %>% 
-    bind_rows(cluster.row)
-}
+#Combine 
+temp2 <- dat.BAL.rename %>% 
+  filter(gene %in% c(BAL_feno_0.1_up, BAL_feno_0.1_dn)) %>% 
+  mutate(EOS = ifelse(gene %in% c(BAL_eos_0.1_up, BAL_eos_0.1_dn), "FDR < 0.1", "NS"),
+         FeNO = ifelse(gene %in% c(BAL_feno_0.1_up, BAL_feno_0.1_dn), "FDR < 0.1", "NS"))
 
-for (i in 1:length(row_order(hm.dn))){
-  cluster.row <- t(t(row.names(corr.dn.R[row_order(hm.dn)[[as.character(i)]],]))) %>% 
-    as.data.frame() %>% 
-    mutate(heatmap = "eos_down",
-           cluster = paste("BAL_row_cluster", i, sep="")) %>% 
-    rename(gene=V1) %>% 
-    bind_rows(cluster.row)
-}
+dat.visit.all.rename2 <- dat.BE.rename %>% 
+  filter(gene %in% c(BE_feno_0.1_up, BE_feno_0.1_dn)) %>% 
+  mutate(EOS = ifelse(gene %in% c(BE_eos_0.1_up, BE_eos_0.1_dn), "FDR < 0.1", "NS"),
+         FeNO = ifelse(gene %in% c(BE_feno_0.1_up, BE_feno_0.1_dn), "FDR < 0.1", "NS")) %>% 
+  bind_rows(temp2) %>% 
+  arrange(donorID) %>% 
+  pivot_wider(names_from = donorID) 
 ```
 
 ```{r}
-#get clusters, columns
-cluster.col <- data.frame()
-for (i in 1:length(column_order(hm.up))){
-  cluster.col <- t(t(colnames(corr.up.R[,column_order(hm.up)[[as.character(i)]]]))) %>% 
-    as.data.frame() %>% 
-    mutate(heatmap = "eos_up",
-           cluster = paste("BE_column_cluster", i, sep="")) %>% 
-    rename(gene=V1) %>% 
-    bind_rows(cluster.col)
-}
+hm.mat.up2 <- dat.visit.all.rename2 %>% 
+  select_if(~all(!is.na(.))) %>%
+  filter(gene %in% c(BAL_feno_0.1_up,BE_feno_0.1_up))
 
-for (i in 1:length(column_order(hm.dn))){
-  cluster.col <- t(t(colnames(corr.dn.R[,column_order(hm.dn)[[as.character(i)]]]))) %>% 
-    as.data.frame() %>% 
-    mutate(heatmap = "eos_down",
-           cluster = paste("BE_column_cluster", i, sep="")) %>% 
-    rename(gene=V1) %>% 
-    bind_rows(cluster.col)
-}
+hm.mat.up.mat2 <- hm.mat.up2 %>% 
+  select(-EOS, -FeNO) %>% 
+  column_to_rownames("gene")
+
+hm.mat.dn2 <- dat.visit.all.rename2 %>% 
+  select_if(~all(!is.na(.))) %>%
+  filter(gene %in% c(BAL_feno_0.1_dn,BE_feno_0.1_dn)) 
+
+hm.mat.dn.mat2 <- hm.mat.dn2 %>% 
+  select(-EOS, -FeNO) %>% 
+  column_to_rownames("gene")
+```
+
+```{r}
+corr.up2 <- rcorr(t(hm.mat.up.mat2), type = "pearson")
+corr.dn2 <- rcorr(t(hm.mat.dn.mat2), type = "pearson")
+
+corr.up.R2 <- as.data.frame(corr.up2$r) %>% 
+  rownames_to_column() %>% 
+  pivot_longer(-rowname) %>% 
+  #filter BAL vs BE
+  filter(grepl("BAL_", rowname)) %>% 
+  filter(grepl("BE_", name)) %>% 
+  mutate(across(c(rowname, name), ~gsub("BAL_|BE_", "", .))) %>% 
+  #Rename columns
+  left_join(gene.key, by=c("name"="geneName")) %>% 
+  mutate(name = paste0(hgnc_symbol, " (", name, ")")) %>% 
+  select(-hgnc_symbol) %>% 
+  pivot_wider() %>% 
+  #rename rows
+  left_join(gene.key, by=c("rowname"="geneName")) %>% 
+  mutate(rowname = paste0(hgnc_symbol, " (", rowname, ")")) %>% 
+  select(-hgnc_symbol) %>% 
+  column_to_rownames() %>% 
+  as.matrix()
+
+corr.dn.R2 <- as.data.frame(corr.dn2$r) %>% 
+  rownames_to_column() %>% 
+  pivot_longer(-rowname) %>% 
+  #filter BAL vs BE
+  filter(grepl("BAL_", rowname)) %>% 
+  filter(grepl("BE_", name)) %>% 
+  mutate(across(c(rowname, name), ~gsub("BAL_|BE_", "", .))) %>% 
+  #Rename columns
+  left_join(gene.key, by=c("name"="geneName")) %>% 
+  mutate(name = paste0(hgnc_symbol, " (", name, ")")) %>% 
+  select(-hgnc_symbol) %>% 
+  pivot_wider() %>% 
+  #rename rows
+  left_join(gene.key, by=c("rowname"="geneName")) %>% 
+  mutate(rowname = paste0(hgnc_symbol, " (", rowname, ")")) %>% 
+  select(-hgnc_symbol) %>% 
+  column_to_rownames() %>% 
+  as.matrix()
+```
+
+#### Genes positively associated with FeNO
+
+There is additional notation if the gene was also significant for eosinophils but this figure does not contain all eosinophil significant genes.
+
+```{r fig.height=8}
+col.anno3 <- HeatmapAnnotation(
+  `BE EOS FDR < 0.1` = filter(hm.mat.up2, grepl("BE_", gene))$EOS,
+  `BE FeNO FDR < 0.1` = filter(hm.mat.up2, grepl("BE_", gene))$FeNO,
+  col = list(`BE EOS FDR < 0.1` = c("FDR < 0.1" = "#E1BE6A", "NS" = "white"),
+             `BE FeNO FDR < 0.1` = c("FDR < 0.1" = "#40B0A6", "NS" = "white")), 
+        show_legend = c(FALSE,FALSE))
+row.anno3 <- rowAnnotation(
+  `BAL EOS FDR < 0.1` = filter(hm.mat.up2, grepl("BAL_", gene))$EOS,
+  `BAL FeNO FDR < 0.1` = filter(hm.mat.up2, grepl("BAL_", gene))$FeNO,
+  col = list(`BAL EOS FDR < 0.1` = c("FDR < 0.1" = "#E1BE6A", "NS" = "white"),
+             `BAL FeNO FDR < 0.1` = c("FDR < 0.1" = "#40B0A6", "NS" = "white")), 
+        show_legend = c(FALSE,FALSE))
+
+set.seed(42)
+hm.up2 <- Heatmap(corr.up.R2, top_annotation = col.anno3, left_annotation = row.anno3,
+        row_km = 2, column_km = 2, name = "Pearson",
+        show_row_names = FALSE, use_raster = FALSE)
+hm.up2 <- draw(hm.up2)
+```
+
+#### Genes negatively associated with FeNO
+
+There is additional notation if the gene was also significant for eosinophils but this figure does not contain all eosinophil significant genes.
+
+```{r fig.height=8}
+col.anno4 <- HeatmapAnnotation(
+  `BE EOS FDR < 0.1` = filter(hm.mat.dn2, grepl("BE_", gene))$EOS,
+  `BE FeNO FDR < 0.1` = filter(hm.mat.dn2, grepl("BE_", gene))$FeNO,
+  col = list(`BE EOS FDR < 0.1` = c("FDR < 0.1" = "#E1BE6A", "NS" = "white"),
+             `BE FeNO FDR < 0.1` = c("FDR < 0.1" = "#40B0A6", "NS" = "white")), 
+        show_legend = c(FALSE,FALSE))
+row.anno4 <- rowAnnotation(
+  `BAL EOS FDR < 0.1` = filter(hm.mat.dn2, grepl("BAL_", gene))$EOS,
+  `BAL FeNO FDR < 0.1` = filter(hm.mat.dn2, grepl("BAL_", gene))$FeNO,
+  col = list(`BAL EOS FDR < 0.1` = c("FDR < 0.1" = "#E1BE6A", "NS" = "white"),
+             `BAL FeNO FDR < 0.1` = c("FDR < 0.1" = "#40B0A6", "NS" = "white")), 
+        show_legend = c(FALSE,FALSE))
+
+set.seed(42)
+hm.dn2 <- Heatmap(corr.dn.R2, top_annotation = col.anno4, left_annotation = row.anno4,
+        row_km = 2, column_km = 2, name = "Pearson",
+        show_row_names = FALSE, use_raster = FALSE)
+hm.dn2 <- draw(hm.dn2)
+```
+
+### Heatmap results files
+
+See `correlation_heatmap_clusters.csv` for gene membership in each cluster. The two heatmaps are designated as `eos_up`, `eos_down`, `feno_up`, or `feno_down`.
+
+```{r}
+source("get_hm_cluster.R")
+cluster.row.eos.up <- get_hm_cluster(dat = corr.up.R, hm = hm.up, dimension = "row") %>% 
+  mutate(cluster = paste("BAL_row",cluster,sep="_"),
+         heatmap = "eos_up")
+cluster.col.eos.up <- get_hm_cluster(dat = corr.up.R, hm = hm.up, dimension = "col") %>% 
+  mutate(cluster = paste("BE_column",cluster,sep="_"),
+         heatmap = "eos_up")
+cluster.row.eos.dn <- get_hm_cluster(dat = corr.dn.R, hm = hm.dn, dimension = "row") %>% 
+  mutate(cluster = paste("BAL_row",cluster,sep="_"),
+         heatmap = "eos_down")
+cluster.col.eos.dn <- get_hm_cluster(dat = corr.dn.R, hm = hm.dn, dimension = "col") %>% 
+  mutate(cluster = paste("BE_column",cluster,sep="_"),
+         heatmap = "eos_down")
+####
+
+cluster.row.feno.up <- get_hm_cluster(dat = corr.up.R2, hm = hm.up2, dimension = "row") %>% 
+  mutate(cluster = paste("BAL_row",cluster,sep="_"),
+         heatmap = "feno_up")
+cluster.col.feno.up <- get_hm_cluster(dat = corr.up.R2, hm = hm.up2, dimension = "col") %>% 
+  mutate(cluster = paste("BE_column",cluster,sep="_"),
+         heatmap = "feno_up")
+cluster.row.feno.dn <- get_hm_cluster(dat = corr.dn.R2, hm = hm.dn2, dimension = "row") %>% 
+  mutate(cluster = paste("BAL_row",cluster,sep="_"),
+         heatmap = "feno_down")
+cluster.col.feno.dn <- get_hm_cluster(dat = corr.dn.R2, hm = hm.dn2, dimension = "col") %>% 
+  mutate(cluster = paste("BE_column",cluster,sep="_"),
+         heatmap = "feno_down")
 ```
 
 ```{r}
 #Save
+cluster.row <- bind_rows(cluster.row.eos.up, cluster.row.eos.dn,
+                         cluster.row.feno.up,cluster.row.feno.dn) %>% 
+  rename(gene=row, order_within_cluster=row_within_cluster)
+
+cluster.col <- bind_rows(cluster.col.eos.up, cluster.col.eos.dn, 
+                         cluster.col.feno.up, cluster.col.feno.dn) %>% 
+  rename(gene=col, order_within_cluster=col_within_cluster)
+
 bind_rows(cluster.row, cluster.col) %>% 
+  select(heatmap, cluster, order_within_cluster, gene) %>% 
+  arrange(heatmap, cluster) %>% 
   separate(gene, into = c("gene","hgnc_symbol")) %>% 
   write_csv("results/correlation_heatmap_clusters.csv")
 ```
