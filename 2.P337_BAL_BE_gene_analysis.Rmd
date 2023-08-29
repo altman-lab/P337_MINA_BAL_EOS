@@ -4,7 +4,7 @@ author: "Kim Dill-McFarland, kadm@uw.edu"
 output:
   html_document:
     toc: yes
-    toc_depth: 4
+    toc_depth: 3
     toc_float:
       collapsed: no
 date: "version `r format(Sys.time(), '%B %d, %Y')`"
@@ -66,6 +66,8 @@ attach("data_clean/P337_BAL_data.RData")
 dat.BAL <- dat.BAL.abund.norm.voom
 attach("data_clean/P337_BE_data.RData")
 dat.BE <- dat.BE.abund.norm.voom
+dat.BE$targets <- dat.BE$targets %>% 
+  rename(NEUT.pct=PMN.pct)
 ```
 
 Recode visit
@@ -152,9 +154,9 @@ summarise_lmFit(lm_visit_BE$lm) %>%
   kable_styling(bootstrap_options = "striped", full_width = FALSE)
 ```
 
-## Linear model: EOS
+## Linear models within visit significant genes
 
-Test association with EOS percentages in only visit-significant genes in Post-visit samples.
+Test association with EOS and NEUT percentages in only visit-significant genes in Post-visit samples.
 
 ### Select visit significant genes and "Post" samples
 
@@ -236,7 +238,7 @@ dim(dat.BAL.visit)
 dim(dat.BE.visit)
 ```
 
-### Model
+### Linear model: EOS
 #### BAL
 
 ```{r eval=FALSE}
@@ -269,7 +271,7 @@ efitE2 <- eBayes(
 lm_eos_BE <- extract_lmFit(model.eosE, efitE2)
 ```
 
-### Summarize EOS models
+#### Summarize EOS models
 
 ```{r echo=FALSE}
 summarise_lmFit(lm_eos_BAL$lm) %>% 
@@ -281,11 +283,87 @@ summarise_lmFit(lm_eos_BE$lm) %>%
   kable_styling(bootstrap_options = "striped", full_width = FALSE)
 ```
 
-## Linear model: FeNO
+### Linear model: NEUT
+#### BAL
+
+```{r eval=FALSE}
+# Define model
+model.neutA <- model.matrix(~ NEUT.pct, data=dat.BAL.visit$targets)
+
+#No blocking as there is one post sample per donor
+  
+# Fit model to transformed count data. Calculate eBayes
+efitA3 <- eBayes(
+            lmFit(dat.BAL.visit$E, model.neutA))
+
+#Extract results
+lm_neut_BAL <- extract_lmFit(model.neutA, efitA3)
+```
+
+#### BE
+
+```{r eval=FALSE}
+# Define model
+model.neutE <- model.matrix(~ NEUT.pct, data=dat.BE.visit$targets)
+
+#No blocking as there is one post sample per donor
+
+# Fit model to transformed count data. Calculate eBayes
+efitE3 <- eBayes(
+            lmFit(dat.BE.visit$E, model.neutE))
+
+#Extract results
+lm_neut_BE <- extract_lmFit(model.neutE, efitE3)
+```
+
+#### Summarize NEUT models
+
+```{r echo=FALSE, warning=FALSE}
+summarise_lmFit(lm_neut_BAL$lm) %>% 
+  kable(caption = "Percent NEUT in BAL, Post samples") %>% 
+  kable_styling(bootstrap_options = "striped", full_width = FALSE)
+
+summarise_lmFit(lm_neut_BE$lm) %>% 
+  kable(caption = "Percent NEUT in BE, Post samples") %>% 
+  kable_styling(bootstrap_options = "striped", full_width = FALSE)
+```
+
+### Linear model: FeNO
 
 Test association with FeNO in only visit-significant genes in Post-visit samples.
 
 #### BAL
+
+Run models in kimma to get fit metrics and determine if FeNO log transformation is needed. 
+
+```{r}
+lm_feno_BAL_k1 <- kmFit(dat.BAL.visit, patientID = "donorID",
+                        model = "~FeNO.PreBro_V5", run_lm = TRUE,
+                        metrics = TRUE)
+
+dat.BAL.visit$targets <- dat.BAL.visit$targets %>% 
+  mutate(log_FeNO.PreBro_V5 = log2(FeNO.PreBro_V5))
+
+lm_feno_BAL_k2 <- kmFit(dat.BAL.visit, patientID = "donorID",
+                        model = "~log_FeNO.PreBro_V5", run_lm = TRUE,
+                        metrics = TRUE)
+
+plot_fit2(lm_feno_BAL_k1, x = "lm",
+          lm_feno_BAL_k2, y = "lm")
+
+lm_feno_BAL_k1$lm.fit %>% 
+  mutate(model="FeNO") %>% 
+  bind_rows(lm_feno_BAL_k2$lm.fit %>% mutate(model="log_FeNO")) %>% 
+  select(model, gene, AIC) %>% 
+  pivot_wider(names_from = model, values_from = AIC) %>% 
+  mutate(deltaAIC = log_FeNO-FeNO) %>% 
+  mutate(`best_fit_AIC>2` = case_when(deltaAIC < -2 ~ "log_FeNO", 
+                                      deltaAIC > 2 ~ "FeNO",
+                                      TRUE ~ "none")) %>% 
+  count(`best_fit_AIC>2`)
+```
+
+A non-log model better fits more genes, though differences are very small.
 
 ```{r eval=FALSE}
 # Define model
@@ -319,7 +397,7 @@ efitE3 <- eBayes(
 lm_feno_BE <- extract_lmFit(model.fenoE, efitE3)
 ```
 
-### Summarize FeNO models
+#### Summarize FeNO models
 
 ```{r echo=FALSE}
 summarise_lmFit(lm_feno_BAL$lm) %>% 
@@ -331,26 +409,149 @@ summarise_lmFit(lm_feno_BE$lm) %>%
   kable_styling(bootstrap_options = "striped", full_width = FALSE)
 ```
 
+
+### Linear model: FEV1
+
+Test association with FEV1 in only visit-significant genes in Post-visit samples.
+
+#### BAL
+
+```{r eval=FALSE}
+# Define model
+model.fevA <- model.matrix(~ FEV1.pctPP.preAlbuterol_V5, data=dat.BAL.visit$targets)
+  colnames(model.fevA) <- c("(Intercept)", "FEV1")
+
+#No blocking as there is one post sample per donor
+  
+# Fit model to transformed count data. Calculate eBayes
+efitV <- eBayes(
+            lmFit(dat.BAL.visit$E, model.fevA))
+
+#Extract results
+lm_fev_BAL <- extract_lmFit(model.fevA, efitV)
+```
+
+#### BE
+
+```{r eval=FALSE}
+# Define model
+model.fevE <- model.matrix(~ FEV1.pctPP.preAlbuterol_V5, data=dat.BE.visit$targets)
+  colnames(model.fevE) <- c("(Intercept)", "FEV1")
+
+#No blocking as there is one post sample per donor
+
+# Fit model to transformed count data. Calculate eBayes
+efitV2 <- eBayes(
+            lmFit(dat.BE.visit$E, model.fevE))
+
+#Extract results
+lm_fev_BE <- extract_lmFit(model.fevE, efitV2)
+```
+
+#### Summarize FEV1 models
+
+```{r echo=FALSE}
+summarise_lmFit(lm_fev_BAL$lm) %>% 
+  kable(caption = "FEV1 in BAL, Post samples") %>% 
+  kable_styling(bootstrap_options = "striped", full_width = FALSE)
+
+summarise_lmFit(lm_fev_BE$lm) %>% 
+  kable(caption = "FEV1 in BE, Post samples") %>% 
+  kable_styling(bootstrap_options = "striped", full_width = FALSE)
+```
+
+### Linear model: FEV1 group
+
+Test association with FEV1 in only visit-significant genes in Post-visit samples.
+
+#### BAL
+
+```{r}
+dat.BAL.visit$targets <- dat.BAL.visit$targets %>% 
+  mutate(FEV1.group = ifelse(FEV1.pctPP.preAlbuterol_V5 <=87, "low","high"),
+         FEV1.group = factor(FEV1.group, levels=c("low","high")))
+
+dat.BE.visit$targets <- dat.BE.visit$targets %>% 
+  mutate(FEV1.group = ifelse(FEV1.pctPP.preAlbuterol_V5 <=87, "low","high"),
+         FEV1.group = factor(FEV1.group, levels=c("low","high")))
+```
+
+```{r eval=FALSE}
+# Define model
+model.fevA2 <- model.matrix(~ FEV1.group, data=dat.BAL.visit$targets)
+
+#No blocking as there is one post sample per donor
+  
+# Fit model to transformed count data. Calculate eBayes
+efitV2 <- eBayes(
+            lmFit(dat.BAL.visit$E, model.fevA2))
+
+#Extract results
+lm_fev_group_BAL <- extract_lmFit(model.fevA2, efitV2)
+```
+
+#### BE
+
+```{r eval=FALSE}
+# Define model
+model.fevE2 <- model.matrix(~ FEV1.group, data=dat.BE.visit$targets)
+
+#No blocking as there is one post sample per donor
+
+# Fit model to transformed count data. Calculate eBayes
+efitV3 <- eBayes(
+            lmFit(dat.BE.visit$E, model.fevE2))
+
+#Extract results
+lm_fev_group_BE <- extract_lmFit(model.fevE, efitV3)
+```
+
+#### Summarize FEV1 models
+
+```{r echo=FALSE}
+summarise_lmFit(lm_fev_group_BAL$lm) %>% 
+  kable(caption = "FEV1 in BAL, Post samples") %>% 
+  kable_styling(bootstrap_options = "striped", full_width = FALSE)
+
+summarise_lmFit(lm_fev_group_BE$lm) %>% 
+  kable(caption = "FEV1 in BE, Post samples") %>% 
+  kable_styling(bootstrap_options = "striped", full_width = FALSE)
+```
+
 ## Compare significant genes
 
 ```{r fig.width=8.5, echo=FALSE}
-plot_venn_genes(model_result = list("BAL "=lm_eos_BAL$lm,
-                                    "BE "=lm_eos_BE$lm,
-                                    "BAL"=lm_feno_BAL$lm,
-                                    "BE"=lm_feno_BE$lm),
-                variables = c("EOS.pct","FeNO"), fdr.cutoff = c(0.05,0.1,0.3))$venn %>% 
-  wrap_plots()
+plot_upset_genes(model_result = list("BAL EOS"=lm_eos_BAL$lm,
+                                    "BAL NEUT"=lm_neut_BAL$lm,
+                                    "BAL FeNO"=lm_feno_BAL$lm),
+                variables = c("EOS.pct","FeNO","NEUT.pct"),
+                fdr.cutoff = c(0.1,0.3))$upset %>% 
+  wrap_plots() + plot_annotation(title="BAL")
+
+plot_upset_genes(model_result = list("BE EOS"=lm_eos_BE$lm,
+                                    "BE NEUT"=lm_neut_BE$lm,
+                                    "BE FeNO"=lm_feno_BE$lm),
+                variables = c("EOS.pct","FeNO","NEUT.pct"),
+                fdr.cutoff = c(0.1,0.3))$upset %>% 
+  wrap_plots() + plot_annotation(title="BE")
 ```
 
 ## Save model results
 
 ```{r eval=FALSE}
-save(lm_visit_BAL, lm_visit_BE, lm_eos_BAL, lm_eos_BE, lm_feno_BAL, lm_feno_BE,
+save(lm_visit_BAL, lm_visit_BE, 
+     lm_eos_BAL, lm_eos_BE, 
+     lm_neut_BAL, lm_neut_BE, 
+     lm_feno_BAL, lm_feno_BE,
+     lm_fev_BAL, lm_fev_BE,
+     lm_fev_group_BAL, lm_fev_group_BE,
      file = "results/gene_model_fitting.RData")
 
-bind_rows(lm_visit_BAL$lm, lm_visit_BE$lm, lm_eos_BAL$lm) %>% 
+bind_rows(lm_visit_BAL$lm, lm_eos_BAL$lm, 
+          lm_neut_BAL$lm, lm_feno_BAL$lm) %>% 
   mutate(sample = "BAL") %>%  
-  bind_rows(lm_eos_BE$lm, lm_feno_BAL$lm, lm_feno_BE$lm %>% 
+  bind_rows(lm_visit_BE$lm, lm_eos_BE$lm, 
+            lm_neut_BE$lm, lm_feno_BE$lm %>% 
               mutate(sample = "BE")) %>%
   filter(variable != "(Intercept)") %>% 
   left_join(gene.key, by = c("gene"="geneName")) %>% 
@@ -372,37 +573,26 @@ gene_ls[["BE_visit_0.3"]] <- lm_visit_BE$lm %>%
   filter(FDR < 0.3 & variable == "visit") %>% 
   pull(gene)
 
-gene_ls[["BAL_eos_0.05"]] <- lm_eos_BAL$lm %>% 
-  filter(FDR < 0.05 & variable == "EOS.pct") %>% 
+fdr.cutoff <- 0.1
+gene_ls[[paste0("BAL_eos_",fdr.cutoff)]] <- lm_eos_BAL$lm %>% 
+  filter(FDR < fdr.cutoff & variable == "EOS.pct") %>% 
   pull(gene)
-gene_ls[["BE_eos_0.05"]] <- lm_eos_BE$lm %>% 
-  filter(FDR < 0.05 & variable == "EOS.pct") %>% 
-  pull(gene)
-gene_ls[["BAL_eos_0.1"]] <- lm_eos_BAL$lm %>% 
-  filter(FDR < 0.1 & variable == "EOS.pct") %>% 
-  pull(gene)
-gene_ls[["BE_eos_0.1"]] <- lm_eos_BE$lm %>% 
-  filter(FDR < 0.1 & variable == "EOS.pct") %>% 
-  pull(gene)
-gene_ls[["BAL_eos_0.3"]] <- lm_eos_BAL$lm %>% 
-  filter(FDR < 0.3 & variable == "EOS.pct") %>% 
-  pull(gene)
-gene_ls[["BE_eos_0.3"]] <- lm_eos_BE$lm %>% 
-  filter(FDR < 0.3 & variable == "EOS.pct") %>% 
+gene_ls[[paste0("BE_eos_",fdr.cutoff)]] <- lm_eos_BE$lm %>% 
+  filter(FDR < fdr.cutoff & variable == "EOS.pct") %>% 
   pull(gene)
 
-##Too few genes at 0.05
-gene_ls[["BAL_feno_0.1"]] <- lm_feno_BAL$lm %>% 
-  filter(FDR < 0.1 & variable == "FeNO") %>% 
+gene_ls[[paste0("BAL_neut_",fdr.cutoff)]] <- lm_neut_BAL$lm %>% 
+  filter(FDR < fdr.cutoff & variable == "NEUT.pct") %>% 
   pull(gene)
-gene_ls[["BE_feno_0.1"]] <- lm_feno_BE$lm %>% 
-  filter(FDR < 0.1 & variable == "FeNO") %>% 
+# gene_ls[[paste0("BE_neut_",fdr.cutoff)]] <- lm_neut_BE$lm %>% 
+#   filter(FDR < fdr.cutoff & variable == "NEUT.pct") %>% 
+#   pull(gene) ##No DEGs
+
+gene_ls[[paste0("BAL_feno_",fdr.cutoff)]] <- lm_feno_BAL$lm %>% 
+  filter(FDR < fdr.cutoff & variable == "FeNO") %>% 
   pull(gene)
-gene_ls[["BAL_feno_0.3"]] <- lm_feno_BAL$lm %>% 
-  filter(FDR < 0.3 & variable == "FeNO") %>% 
-  pull(gene)
-gene_ls[["BE_feno_0.3"]] <- lm_feno_BE$lm %>% 
-  filter(FDR < 0.3 & variable == "FeNO") %>% 
+gene_ls[[paste0("BE_feno_",fdr.cutoff)]] <- lm_feno_BE$lm %>% 
+  filter(FDR < fdr.cutoff & variable == "FeNO") %>% 
   pull(gene)
 ```
 
@@ -430,23 +620,35 @@ deg_H %>%
   count(group, size_group, gs_cat) %>% 
   separate(group, into = c("Sample","Variable","FDR"), sep = "_") %>% 
   mutate(gs_cat = factor(gs_cat, levels=c("H","C5")),
-         Variable = factor(Variable, levels = c("visit", "eos", "feno"))) %>% 
+         Variable = factor(Variable, levels = c("visit", "eos", "neut", "feno"))) %>% 
   arrange(Sample, Variable, FDR, gs_cat) %>% 
   kable(caption = "Hallmark enriched pathways (FDR 0.2)") %>% 
   kable_styling(bootstrap_options = "striped", full_width = FALSE) %>% 
   collapse_rows(1:2)
 ```
 
+```{r echo=FALSE}
+deg_C5 %>% 
+  filter(FDR < 0.05) %>% 
+  count(group, size_group, gs_cat, gs_subcat) %>% 
+  separate(group, into = c("Sample","Variable","FDR"), sep = "_") %>% 
+  mutate(gs_cat = factor(gs_cat, levels=c("H","C5")),
+         Variable = factor(Variable, levels = c("visit", "eos", "neut", "feno"))) %>% 
+  arrange(Sample, Variable, FDR, gs_cat) %>% 
+  kable(caption = "GO enriched pathways (FDR 0.05)") %>% 
+  kable_styling(bootstrap_options = "striped", full_width = FALSE) %>% 
+  collapse_rows(1:2)
+```
 
-EOS 0.3
+#### EOS FDR < 0.1
 
-```{r}
+```{r echo=FALSE}
 H.toPlot <- deg_H %>% 
-  filter(grepl("eos_0.3", group) & FDR < 0.2) %>% 
+  filter(grepl("eos_0.1", group) & FDR < 0.2) %>% 
   pull(pathway) %>% unique()
 
 deg_H %>% 
-  filter(grepl("eos_0.3", group) & pathway %in% H.toPlot) %>% 
+  filter(grepl("eos_0.1", group) & pathway %in% H.toPlot) %>% 
   mutate(Significance = case_when(FDR < 0.2 ~ "FDR < 0.2", 
                                   TRUE ~ "NS")) %>% 
   mutate(pathway = gsub("HALLMARK_","",pathway)) %>% 
@@ -460,23 +662,48 @@ deg_H %>%
   ggtitle("Hallmark")
 ```
 
+#### NEUT FDR < 0.1
+
 ```{r echo=FALSE}
-deg_C5 %>% 
-  filter(FDR < 0.05) %>% 
-  count(group, size_group, gs_cat, gs_subcat) %>% 
-  separate(group, into = c("Sample","Variable","FDR"), sep = "_") %>% 
-  mutate(gs_cat = factor(gs_cat, levels=c("H","C5")),
-         Variable = factor(Variable, levels = c("visit", "eos", "feno"))) %>% 
-  arrange(Sample, Variable, FDR, gs_cat) %>% 
-  kable(caption = "GO enriched pathways (FDR 0.01)") %>% 
-  kable_styling(bootstrap_options = "striped", full_width = FALSE) %>% 
-  collapse_rows(1:2)
+H.toPlot <- deg_H %>% 
+  filter(grepl("neut_0.1", group) & FDR < 0.2) %>% 
+  pull(pathway) %>% unique()
+
+deg_H %>% 
+  filter(grepl("neut_0.1", group) & pathway %in% H.toPlot) %>% 
+  mutate(Significance = case_when(FDR < 0.2 ~ "FDR < 0.2", 
+                                  TRUE ~ "NS")) %>% 
+  mutate(pathway = gsub("HALLMARK_","",pathway)) %>% 
+  
+  ggplot(aes(x=pathway, y=`k/K`)) +
+  geom_col(aes(fill=Significance)) +
+  theme_classic() +
+  facet_wrap(~group) +
+  coord_flip() +
+  scale_fill_manual(values = c("darkorange","grey80")) +
+  ggtitle("Hallmark")
 ```
 
-EOS 0.1
+#### FeNO FDR < 0.1
 
-```{r}
+```{r echo=FALSE}
+H.toPlot <- deg_H %>% 
+  filter(grepl("feno_0.1", group) & FDR < 0.2) %>% 
+  pull(pathway) %>% unique()
 
+deg_H %>% 
+  filter(grepl("feno_0.1", group) & pathway %in% H.toPlot) %>% 
+  mutate(Significance = case_when(FDR < 0.2 ~ "FDR < 0.2", 
+                                  TRUE ~ "NS")) %>% 
+  mutate(pathway = gsub("HALLMARK_","",pathway)) %>% 
+  
+  ggplot(aes(x=pathway, y=`k/K`)) +
+  geom_col(aes(fill=Significance)) +
+  theme_classic() +
+  facet_wrap(~group) +
+  coord_flip() +
+  scale_fill_manual(values = c("darkorange","grey80")) +
+  ggtitle("Hallmark")
 ```
 
 Save signif genes to df
