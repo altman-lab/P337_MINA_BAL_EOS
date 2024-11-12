@@ -1,0 +1,406 @@
+---
+title: "P337: CDH26 targeted analysis"
+author: "Kim Dill-McFarland, kadm@uw.edu"
+output:
+  html_document:
+    toc: yes
+    toc_depth: 3
+    toc_float:
+      collapsed: no
+date: "version `r format(Sys.time(), '%B %d, %Y')`"
+editor_options: 
+  chunk_output_type: console
+---
+
+# Background
+
+Hypothesis:
+
+1. Genes are activated in the bronchial epithelium (BE) after allergen challenge
+0. This results in cytokine responses in the BAL.
+0. Which recruits eosinophils to the airway (also measured in BAL)
+0. This translates to airway inflammation as measured by an increase in FeNO
+
+# Setup
+
+Load packages
+
+```{r message=FALSE, warning=FALSE}
+# Data manipulation and figures
+library(tidyverse)
+library(broom)
+# RNAseq data
+library(limma)
+library(kimma)
+#plots
+library(BIGpicture)
+library(patchwork)
+library(ggpubr)
+library(ggrepel)
+# Print pretty table to knit file
+# library(knitr)
+# library(kableExtra)
+# options(knitr.kable.NA = '')
+library(mediation)
+
+`%notin%` <- Negate(`%in%`)
+select <- dplyr::select
+```
+
+Set seed
+
+```{r}
+set.seed(4389)
+```
+
+# Data
+## Load data
+
+Gene expression
+
+```{r}
+# Genes
+# attach("data_clean/P337_BAL_data.RData")
+attach("data_clean/P337_BE_data.RData")
+```
+
+Recode visit
+
+```{r eval=FALSE}
+# dat.BAL$targets <- dat.BAL$targets %>% 
+#   mutate(visit = case_when(visit == "V4" ~ "Pre",
+#                            visit == "V5" ~ "Post"),
+#          visit = factor(visit, levels = c("Pre","Post")))
+
+dat.BE$targets <- dat.BE$targets %>% 
+  mutate(visit = case_when(visit == "V4" ~ "Pre",
+                           visit == "V5" ~ "Post"),
+         visit = factor(visit, levels = c("Pre","Post")))
+```
+
+Cytokine protein abundance
+
+```{r}
+#Load data
+multip <- read_csv("data_raw/addtl.data/P337_BAL.multiplex.csv") %>% 
+  #Correct error
+  rename(FGF2_V4=TGF2_V4) %>% 
+  pivot_longer(-ptID) %>% 
+  separate(name, into = c("name","visit"), remove = FALSE) %>% 
+  mutate(sampID = paste(ptID,visit,sep="_")) %>% 
+  select(-ptID,-visit) %>% 
+  mutate(value=log10(value)) %>% 
+  pivot_wider(names_from = name)
+```
+
+## Select CDH26
+
+```{r}
+cdh26ens <- dat.BE$genes %>% 
+  filter(hgnc_symbol=="CDH26") %>% 
+  pull(geneName)
+```
+
+```{r eval=FALSE}
+#BAL
+bal.cdh26 <- as.data.frame(dat.BAL$E) %>% 
+  rownames_to_column() %>% 
+  filter(rowname %in% cdh26ens) %>% 
+  pivot_longer(-rowname, names_to = "libID", values_to="BAL_CDH26") %>% 
+  left_join(dat.BAL$targets) %>% 
+  mutate(sampID = paste(donorID,visit,sep="_")) %>% 
+  select(sampID, donorID, visit, BAL_CDH26)
+
+bal.cdh26.v5 <- bal.cdh26 %>% 
+  filter(visit=="V5") %>% 
+  arrange(sampID)
+```
+
+```{r}
+#BE
+be.cdh26 <- as.data.frame(dat.BE$E) %>% 
+  rownames_to_column() %>% 
+  filter(rowname %in% cdh26ens) %>% 
+  pivot_longer(-rowname, names_to = "libID", values_to="BE_CDH26") %>% 
+  left_join(dat.BE$targets) %>% 
+  mutate(sampID = paste(donorID,visit,sep="_")) %>% 
+  select(sampID, donorID, visit, BE_CDH26)
+
+be.cdh26.v5 <- be.cdh26 %>% 
+  filter(visit=="V5") %>% 
+  arrange(sampID)
+```
+
+```{r}
+multip.V5 <- multip %>% 
+  arrange(sampID) %>% 
+  filter(grepl("_V5", sampID)) %>% 
+  column_to_rownames("sampID") %>% 
+  t() %>% as.data.frame()
+
+# bal_overlap <- intersect(bal.cdh26.v5$sampID, colnames(multip.V5))
+# multip.V5.bal <- multip.V5 %>% 
+#   select(all_of(bal_overlap))
+# bal.cdh26.v5 <- bal.cdh26.v5 %>% 
+#   filter(sampID %in% bal_overlap)
+
+be_overlap <- intersect(be.cdh26.v5$sampID, colnames(multip.V5))
+multip.V5.be <- multip.V5 %>% 
+  select(all_of(be_overlap))
+be.cdh26.v5 <- be.cdh26.v5 %>% 
+  filter(sampID %in% be_overlap)
+```
+
+# Post allergen challenge
+## CDH26 and BAL cytokine proteins
+
+Select cytokines of interest
+
+```{r}
+cyto_OI <- c("IL5","IL13","TARC","CCL26","GMCSF","IL9")
+multip.V5.be.select <- multip.V5.be[cyto_OI,]
+```
+
+### Linear models
+
+```{r}
+# bal_m <- kmFit(counts = multip.V5.bal, meta=bal.cdh26.v5, 
+#             libraryID = "sampID", patientID = "sampID",
+#             model="~BAL_CDH26", run_lm=TRUE)
+be_m <- kmFit(counts = multip.V5.be.select, meta=be.cdh26.v5, 
+              libraryID = "sampID", patientID = "sampID",
+              model="~BE_CDH26", run_lm=TRUE)
+```
+
+```{r}
+# p1 <- plot_volcano(bal_m, "lm", variables="BAL_CDH26", y_cutoff = 0.2,
+#              label="all")
+p2 <- plot_volcano(be_m, "lm", variables="BE_CDH26", 
+                   y_cutoff = 0.4,
+                   label="all") +
+  geom_hline(yintercept = -log10(0.1), lty="dashed") +
+  geom_hline(yintercept = -log10(0.2), lty="dashed") +
+  annotate("text", x=0.6, y=-log10(0.1)+0.02, label="FDR = 0.1") +
+  annotate("text", x=0.6, y=-log10(0.2)+0.02, label="FDR = 0.2")
+
+p2
+
+ggsave("figs/CDH26_cyto.png", p2, width=4, height=3)
+```
+
+```{r eval=FALSE}
+# p1b <- plot_volcano(bal_m, "lm", variables="BAL_CDH26", y_cutoff = 0.05,
+#              label="all", y="pval")
+p2b <- plot_volcano(be_m, "lm", variables="BE_CDH26", y_cutoff = 0.05,
+                    label="all", y="pval")
+
+p2b
+
+ggsave("figs/CDH26_cyto_p.png", p2b, width=4, height=3)
+```
+
+### Plots
+
+```{r}
+cyto_gene <- multip.V5.be %>% 
+  rownames_to_column("cyto") %>% 
+  pivot_longer(-cyto, names_to = "sampID", values_to = "cyto_value") %>% 
+  # bind_rows(multip.V5.bal %>% 
+  #             rownames_to_column("cyto") %>% 
+  #             pivot_longer(-cyto, names_to = "sampID", values_to = "cyto_value")) %>% 
+  distinct() %>% 
+  # full_join(bal.cdh26.v5) %>% 
+  full_join(be.cdh26.v5) %>% 
+  filter(cyto %in% cyto_OI) %>% 
+  # add FDR
+  full_join(be_m$lm %>% 
+              filter(variable != "(Intercept)"),
+            by=c("cyto"="gene")) %>% 
+  mutate(facet_lab = paste0(cyto,"\nFDR = ", signif(FDR, digits=2)))
+
+p4 <- ggplot(cyto_gene, aes(x=BE_CDH26, y=cyto_value)) +
+  geom_point() +
+  geom_smooth(method="lm") +
+  theme_classic() +
+  facet_wrap(~facet_lab, scales = "free") +
+  labs(x="BE Post SBP-Ag\nCDH26 gene expression",
+       y="BAL Post SBP-Ag\nProtein abundance") +
+  stat_cor()
+p4
+ggsave("figs/CDH26_IL5.png", p4, width=6, height=4)
+```
+
+## CDH26 and blood eosinophils
+
+Cell proportions in blood.
+
+```{r}
+cell_blood <- read_csv("data_raw/addtl.data/P337_cell.counts.csv") %>% 
+  select(ptID, contains("blood")) %>% 
+  #Remove WBC
+  select(-contains("WBC")) %>% 
+  #Calculate % 
+  pivot_longer(-ptID) %>% 
+  separate(name, into=c("group","cell","unit","visit"), sep="_") %>% 
+  group_by(ptID, visit) %>% 
+  mutate(pct = value/sum(value)*100) %>% 
+  ungroup() %>% 
+  select(ptID, visit, cell, pct) %>% 
+  mutate(cell = paste(cell,"pct",sep=".")) %>% 
+  pivot_wider(names_from = cell, values_from = pct) %>% 
+  #Clean PMN name
+  rename(NEUT.pct=PMN.pct, BASO.pct=Baso.pct) %>% 
+  mutate(sampID = paste(ptID,visit,sep="_")) %>% 
+  select(sampID, everything(), -ptID,-visit) %>% 
+  # full_join(bal.cdh26) %>% 
+  full_join(be.cdh26)
+
+cell_blood_v5 <- cell_blood %>% 
+  filter(visit=="V5")
+```
+
+```{r}
+# eosm1 <- lm(data=cell_blood_v5, EOS.pct~BAL_CDH26)
+# broom::tidy(summary(eosm1))
+eosm2 <- lm(data=cell_blood_v5, EOS.pct~BE_CDH26)
+broom::tidy(summary(eosm2))
+```
+
+```{r}
+#LM P is the same as stat_cor P for Pearson
+# p5 <- ggplot(cell_blood_v5, aes(x=BAL_CDH26, y=EOS.pct)) +
+#   geom_point() +
+#   geom_smooth(method="lm") +
+#   theme_classic() +
+#   labs(x="BAL Post SBP-Ag\nCDH26 gene expression",
+#        y="Blood Post SBP-Ag\neosinophil %") +
+#   stat_cor()
+p6 <- ggplot(cell_blood_v5, aes(x=BE_CDH26, y=EOS.pct)) +
+  geom_point() +
+  geom_smooth(method="lm") +
+  theme_classic() +
+  labs(x="BE Post SBP-Ag\nCDH26 gene expression",
+       y="Blood Post SBP-Ag\neosinophil %") +
+  stat_cor()
+p6
+ggsave("figs/CDH26_bloodEOS.png", p6, width=4, height=3)
+```
+
+## Mediation analysis
+
+BE gene expression -> cytokine abundance -> eos % or FeNO outcome
+
+```{r eval=FALSE}
+cyto_gene_eos_feno <- cyto_gene %>% 
+  left_join(dat.BE$targets %>% 
+              filter(visit=="V5") %>% 
+              mutate(sampID = paste(donorID,visit,sep="_")) %>% 
+              select(sampID, EOS.pct, FeNO.PreBro_V5)) %>% 
+  select(sampID, cyto, cyto_value, BE_CDH26, EOS.pct, FeNO.PreBro_V5)
+
+med_result <- data.frame()
+med_lm_result <- data.frame()
+
+for(cy in cyto_OI){
+  print(cy)
+  dat.temp <- cyto_gene_eos_feno %>% 
+    filter(cyto==cy)
+  
+  ####EOS####
+  fit <- lm(EOS.pct ~ BE_CDH26, data=dat.temp)
+  fitM <- lm(cyto_value ~ BE_CDH26, data=dat.temp) 
+  fitY <- lm(EOS.pct ~ BE_CDH26 + cyto_value, data=dat.temp)
+  
+  main1 <- broom::tidy(summary(fit)) %>% 
+    mutate(model="main") %>% 
+    bind_rows(broom::tidy(summary(fitM)) %>% 
+                mutate(model="med_out")) %>% 
+    bind_rows(broom::tidy(summary(fitY)) %>% 
+                mutate(model="med")) %>% 
+    mutate(cyto=cy, outcome="EOS.pct")
+  
+  fitMedBoot <- mediate(fitM, fitY, boot=TRUE, sims=999, 
+                        treat="BE_CDH26", mediator="cyto_value") %>% 
+    summary()
+  
+  med1 <- data.frame(
+    name = c("ACME","ADE","Total","Prop_Med"),
+    estimate = c(fitMedBoot$d.avg, fitMedBoot$z.avg,
+                 fitMedBoot$tau.coef, fitMedBoot$n.avg),
+    lower = c(fitMedBoot$d.avg.ci[1], fitMedBoot$z.avg.ci[1],
+              fitMedBoot$tau.ci[1], fitMedBoot$n.avg.ci[1]),
+    upper = c(fitMedBoot$d.avg.ci[2], fitMedBoot$z.avg.ci[2],
+              fitMedBoot$tau.ci[2], fitMedBoot$n.avg.ci[2]),
+    p = c(fitMedBoot$d.avg.p, fitMedBoot$z.avg.p,
+          fitMedBoot$tau.p, fitMedBoot$n.avg.p)
+  ) %>% 
+    mutate(cyto=cy, outcome="EOS.pct")
+  
+  ####FeNO####
+  fit2 <- lm(FeNO.PreBro_V5 ~ BE_CDH26, data=dat.temp)
+  fitM2 <- lm(cyto_value ~ BE_CDH26, data=dat.temp) 
+  fitY2 <- lm(FeNO.PreBro_V5 ~ BE_CDH26 + cyto_value, data=dat.temp)
+  
+  main2 <- broom::tidy(summary(fit2)) %>% 
+    mutate(model="main") %>% 
+    bind_rows(broom::tidy(summary(fitM2)) %>% 
+                mutate(model="med_out")) %>% 
+    bind_rows(broom::tidy(summary(fitY2)) %>% 
+                mutate(model="med")) %>% 
+    mutate(cyto=cy, outcome="FeNO_V5")
+  
+  fitMedBoot2 <- mediate(fitM2, fitY2, boot=TRUE, sims=999, 
+                         treat="BE_CDH26", mediator="cyto_value") %>% 
+    summary()
+  
+  med2 <- data.frame(
+    name = c("ACME","ADE","Total","Prop_Med"),
+    estimate = c(fitMedBoot2$d.avg, fitMedBoot2$z.avg,
+                 fitMedBoot2$tau.coef, fitMedBoot2$n.avg),
+    lower = c(fitMedBoot2$d.avg.ci[1], fitMedBoot2$z.avg.ci[1],
+              fitMedBoot2$tau.ci[1], fitMedBoot2$n.avg.ci[1]),
+    upper = c(fitMedBoot2$d.avg.ci[2], fitMedBoot2$z.avg.ci[2],
+              fitMedBoot2$tau.ci[2], fitMedBoot2$n.avg.ci[2]),
+    p = c(fitMedBoot2$d.avg.p, fitMedBoot2$z.avg.p,
+          fitMedBoot2$tau.p, fitMedBoot2$n.avg.p)
+  ) %>% 
+    mutate(cyto=cy, outcome="FeNO_V5")
+  
+  med_result <- bind_rows(med1,med2,med_result)
+  med_lm_result <- bind_rows(main1,main2,med_lm_result)
+}
+
+save(med_result, med_lm_result, file="results/mediation.RData")
+```
+
+```{r}
+load("results/mediation.RData")
+```
+
+### Plots
+
+```{r}
+p5 <- med_result %>% 
+  filter(name!="Total") %>% 
+  mutate(estimate = case_when(name=="Prop_Med"~estimate*100,
+                              TRUE~estimate)) %>% 
+  # mutate(p=ifelse(p==0, 2E-16, p)) %>% 
+  ggplot(aes(x=estimate, y=-log10(p), color=cyto)) +
+  geom_point() +
+  facet_grid(outcome~name, scales="free_x") +
+  geom_hline(yintercept = -log10(0.05), lty="dashed") +
+  geom_text_repel(aes(label = cyto), 
+                show.legend = FALSE, max.overlaps = 100)+
+  theme_bw()
+p5
+ggsave(filename = "figs/CDH26_mediation.png", p5,
+       width=8, height=4)
+```
+
+# R session
+
+```{r}
+sessionInfo()
+```
+
+***

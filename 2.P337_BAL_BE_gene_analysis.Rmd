@@ -34,15 +34,6 @@ library(kimma)
 #plots
 library(BIGpicture)
 library(patchwork)
-# Heatmap
-library(ComplexHeatmap)
-library(circlize)
-# Correlation
-library(Hmisc)
-library(corrplot)
-#enrichment
-library(SEARchways)
-library(rrvgo)
 # Print pretty table to knit file
 library(knitr)
 library(kableExtra)
@@ -63,11 +54,7 @@ set.seed(4389)
 ```{r}
 # Genes
 attach("data_clean/P337_BAL_data.RData")
-dat.BAL <- dat.BAL.abund.norm.voom
 attach("data_clean/P337_BE_data.RData")
-dat.BE <- dat.BE.abund.norm.voom
-dat.BE$targets <- dat.BE$targets %>% 
-  rename(NEUT.pct=PMN.pct)
 ```
 
 Recode visit
@@ -145,18 +132,18 @@ lm_visit_BE <- extract_lmFit(model.visitE, efitE)
 ### Summarize visit models
 
 ```{r echo=FALSE}
-summarise_lmFit(lm_visit_BAL$lm) %>% 
+summarise_kmFit(lm_visit_BAL$lm) %>% 
   kable(caption = "Post vs Pre visit in BAL") %>% 
   kable_styling(bootstrap_options = "striped", full_width = FALSE)
 
-summarise_lmFit(lm_visit_BE$lm) %>% 
+summarise_kmFit(lm_visit_BE$lm) %>% 
   kable(caption = "Post vs Pre visit in BE") %>% 
   kable_styling(bootstrap_options = "striped", full_width = FALSE)
 ```
 
 ## Linear models within visit significant genes
 
-Test association with EOS and NEUT percentages in only visit-significant genes in Post-visit samples.
+Test association with EOS and PMN percentages in only visit-significant genes in Post-visit samples.
 
 ### Select visit significant genes and "Post" samples
 
@@ -274,21 +261,21 @@ lm_eos_BE <- extract_lmFit(model.eosE, efitE2)
 #### Summarize EOS models
 
 ```{r echo=FALSE}
-summarise_lmFit(lm_eos_BAL$lm) %>% 
+summarise_kmFit(lm_eos_BAL$lm) %>% 
   kable(caption = "Percent EOS in BAL, Post samples") %>% 
   kable_styling(bootstrap_options = "striped", full_width = FALSE)
 
-summarise_lmFit(lm_eos_BE$lm) %>% 
+summarise_kmFit(lm_eos_BE$lm) %>% 
   kable(caption = "Percent EOS in BE, Post samples") %>% 
   kable_styling(bootstrap_options = "striped", full_width = FALSE)
 ```
 
-### Linear model: NEUT
+### Linear model: PMN
 #### BAL
 
 ```{r eval=FALSE}
 # Define model
-model.neutA <- model.matrix(~ NEUT.pct, data=dat.BAL.visit$targets)
+model.neutA <- model.matrix(~ PMN.pct, data=dat.BAL.visit$targets)
 
 #No blocking as there is one post sample per donor
   
@@ -304,7 +291,7 @@ lm_neut_BAL <- extract_lmFit(model.neutA, efitA3)
 
 ```{r eval=FALSE}
 # Define model
-model.neutE <- model.matrix(~ NEUT.pct, data=dat.BE.visit$targets)
+model.neutE <- model.matrix(~ PMN.pct, data=dat.BE.visit$targets)
 
 #No blocking as there is one post sample per donor
 
@@ -316,16 +303,104 @@ efitE3 <- eBayes(
 lm_neut_BE <- extract_lmFit(model.neutE, efitE3)
 ```
 
-#### Summarize NEUT models
+#### Summarize PMN models
 
-```{r echo=FALSE, warning=FALSE}
-summarise_lmFit(lm_neut_BAL$lm) %>% 
-  kable(caption = "Percent NEUT in BAL, Post samples") %>% 
+```{r echo=FALSE, warning=FALSE, error=TRUE}
+summarise_kmFit(lm_neut_BAL$lm) %>% 
+  kable(caption = "Percent PMN in BAL, Post samples") %>% 
   kable_styling(bootstrap_options = "striped", full_width = FALSE)
 
-summarise_lmFit(lm_neut_BE$lm) %>% 
-  kable(caption = "Percent NEUT in BE, Post samples") %>% 
+summarise_kmFit(lm_neut_BE$lm) %>% 
+  kable(caption = "Percent PMN in BE, Post samples") %>% 
   kable_styling(bootstrap_options = "striped", full_width = FALSE)
+```
+
+### Linear model: Delta PMN
+
+Because neutrophils vary at baseline compare the post-challenge model to one with the change in neutrophils
+
+```{r}
+#Calculate delta neut
+neut.delta.bal <- dat.BAL$targets %>% 
+  select(donorID, visit, PMN.pct) %>% 
+  pivot_wider(names_from = visit, values_from = PMN.pct) %>% 
+  mutate(PMN.delta = Post-Pre)
+
+dat.BAL.visit$targets <- dat.BAL.visit$targets %>% 
+  left_join(neut.delta.bal)
+####
+neut.delta.be <- dat.BE$targets %>% 
+  select(donorID, visit, PMN.pct) %>% 
+  pivot_wider(names_from = visit, values_from = PMN.pct) %>% 
+  mutate(PMN.delta = Post-Pre)
+
+dat.BE.visit$targets <- dat.BE.visit$targets %>% 
+  left_join(neut.delta.be)
+```
+
+#### BAL
+
+```{r eval=FALSE}
+# Define model
+model.neutA2 <- model.matrix(~ PMN.delta, data=dat.BAL.visit$targets)
+
+#No blocking as there is one post sample per donor
+  
+# Fit model to transformed count data. Calculate eBayes
+efitA4 <- eBayes(
+            lmFit(dat.BAL.visit$E, model.neutA2))
+
+#Extract results
+lm_neut_delta_BAL <- extract_lmFit(model.neutA2, efitA4)
+```
+
+#### BE
+
+```{r eval=FALSE}
+#remove missing sample
+dat.BE.visit.sub <- dat.BE.visit
+dat.BE.visit.sub$targets <- dat.BE.visit.sub$targets %>% 
+  drop_na(PMN.delta)
+dat.BE.visit.sub$E <- as.data.frame(dat.BE.visit.sub$E) %>% 
+  select(all_of(dat.BE.visit.sub$targets$libID))
+dat.BE.visit.sub$weights <- dat.BE.visit.sub$weights %>% 
+  select(all_of(dat.BE.visit.sub$targets$libID))
+
+# Define model
+model.neutE2 <- model.matrix(~ PMN.delta, data=dat.BE.visit.sub$targets)
+
+#No blocking as there is one post sample per donor
+
+# Fit model to transformed count data. Calculate eBayes
+efitE4 <- eBayes(
+            lmFit(dat.BE.visit.sub$E, model.neutE2))
+
+#Extract results
+lm_neut_delta_BE <- extract_lmFit(model.neutE2, efitE4)
+```
+
+#### Summarize delta PMN models
+
+```{r echo=FALSE, warning=FALSE, error=TRUE}
+summarise_kmFit(lm_neut_delta_BAL$lm) %>% 
+  kable(caption = "Percent PMN in BAL, Change from Pre to Post samples") %>% 
+  kable_styling(bootstrap_options = "striped", full_width = FALSE)
+
+summarise_kmFit(lm_neut_delta_BE$lm) %>% 
+  kable(caption = "Percent PMN in BE, Change from Pre to Post samples") %>% 
+  kable_styling(bootstrap_options = "striped", full_width = FALSE)
+```
+
+Compare to non-delta model. No genes significant for either PMN variable in BE
+
+```{r}
+plot_venn_genes(list("PMN BAL"=lm_neut_BAL$lm,
+                     "PMN delta BAL"=lm_neut_delta_BAL$lm),
+                fdr_cutoff = 0.1, return_genes = TRUE)
+
+plot_venn_genes(list("PMN BE"=lm_neut_BE$lm,
+                     "PMN delta BE"=lm_neut_delta_BE$lm),
+                fdr_cutoff = 0.1)
 ```
 
 ### Linear model: FeNO
@@ -400,11 +475,11 @@ lm_feno_BE <- extract_lmFit(model.fenoE, efitE3)
 #### Summarize FeNO models
 
 ```{r echo=FALSE}
-summarise_lmFit(lm_feno_BAL$lm) %>% 
+summarise_kmFit(lm_feno_BAL$lm) %>% 
   kable(caption = "FeNO in BAL, Post samples") %>% 
   kable_styling(bootstrap_options = "striped", full_width = FALSE)
 
-summarise_lmFit(lm_feno_BE$lm) %>% 
+summarise_kmFit(lm_feno_BE$lm) %>% 
   kable(caption = "FeNO in BE, Post samples") %>% 
   kable_styling(bootstrap_options = "striped", full_width = FALSE)
 ```
@@ -450,12 +525,12 @@ lm_fev_BE <- extract_lmFit(model.fevE, efitV2)
 
 #### Summarize FEV1 models
 
-```{r echo=FALSE}
-summarise_lmFit(lm_fev_BAL$lm) %>% 
+```{r echo=FALSE, error=TRUE}
+summarise_kmFit(lm_fev_BAL$lm) %>% 
   kable(caption = "FEV1 in BAL, Post samples") %>% 
   kable_styling(bootstrap_options = "striped", full_width = FALSE)
 
-summarise_lmFit(lm_fev_BE$lm) %>% 
+summarise_kmFit(lm_fev_BE$lm) %>% 
   kable(caption = "FEV1 in BE, Post samples") %>% 
   kable_styling(bootstrap_options = "striped", full_width = FALSE)
 ```
@@ -508,12 +583,12 @@ lm_fev_group_BE <- extract_lmFit(model.fevE, efitV3)
 
 #### Summarize FEV1 models
 
-```{r echo=FALSE}
-summarise_lmFit(lm_fev_group_BAL$lm) %>% 
+```{r echo=FALSE, error=TRUE}
+summarise_kmFit(lm_fev_group_BAL$lm) %>% 
   kable(caption = "FEV1 in BAL, Post samples") %>% 
   kable_styling(bootstrap_options = "striped", full_width = FALSE)
 
-summarise_lmFit(lm_fev_group_BE$lm) %>% 
+summarise_kmFit(lm_fev_group_BE$lm) %>% 
   kable(caption = "FEV1 in BE, Post samples") %>% 
   kable_styling(bootstrap_options = "striped", full_width = FALSE)
 ```
@@ -522,16 +597,16 @@ summarise_lmFit(lm_fev_group_BE$lm) %>%
 
 ```{r fig.width=8.5, echo=FALSE}
 plot_upset_genes(model_result = list("BAL EOS"=lm_eos_BAL$lm,
-                                    "BAL NEUT"=lm_neut_BAL$lm,
+                                    "BAL PMN"=lm_neut_BAL$lm,
                                     "BAL FeNO"=lm_feno_BAL$lm),
-                variables = c("EOS.pct","FeNO","NEUT.pct"),
+                variables = c("EOS.pct","FeNO","PMN.pct"),
                 fdr.cutoff = c(0.1,0.3))$upset %>% 
   wrap_plots() + plot_annotation(title="BAL")
 
 plot_upset_genes(model_result = list("BE EOS"=lm_eos_BE$lm,
-                                    "BE NEUT"=lm_neut_BE$lm,
+                                    "BE PMN"=lm_neut_BE$lm,
                                     "BE FeNO"=lm_feno_BE$lm),
-                variables = c("EOS.pct","FeNO","NEUT.pct"),
+                variables = c("EOS.pct","FeNO","PMN.pct"),
                 fdr.cutoff = c(0.1,0.3))$upset %>% 
   wrap_plots() + plot_annotation(title="BE")
 ```
@@ -539,9 +614,15 @@ plot_upset_genes(model_result = list("BE EOS"=lm_eos_BE$lm,
 ## Save model results
 
 ```{r eval=FALSE}
+gene.key <- dat.BAL$genes %>% 
+  bind_rows(dat.BE$genes) %>% 
+  select(geneName, hgnc_symbol) %>% 
+  distinct()
+
 save(lm_visit_BAL, lm_visit_BE, 
      lm_eos_BAL, lm_eos_BE, 
      lm_neut_BAL, lm_neut_BE, 
+     lm_neut_delta_BAL, lm_neut_delta_BE,
      lm_feno_BAL, lm_feno_BE,
      lm_fev_BAL, lm_fev_BE,
      lm_fev_group_BAL, lm_fev_group_BE,
@@ -557,182 +638,6 @@ bind_rows(lm_visit_BAL$lm, lm_eos_BAL$lm,
   left_join(gene.key, by = c("gene"="geneName")) %>% 
   select(sample, gene, hgnc_symbol, variable, estimate, pval, FDR) %>% 
   write_csv("results/gene_lm_results.csv")
-```
-
-# DEG enrichment
-
-Format gene list.
-
-```{r}
-gene_ls <- list()
-
-gene_ls[["BAL_visit_0.3"]] <- lm_visit_BAL$lm %>% 
-  filter(FDR < 0.3 & variable == "visit") %>% 
-  pull(gene)
-gene_ls[["BE_visit_0.3"]] <- lm_visit_BE$lm %>% 
-  filter(FDR < 0.3 & variable == "visit") %>% 
-  pull(gene)
-
-fdr.cutoff <- 0.1
-gene_ls[[paste0("BAL_eos_",fdr.cutoff)]] <- lm_eos_BAL$lm %>% 
-  filter(FDR < fdr.cutoff & variable == "EOS.pct") %>% 
-  pull(gene)
-gene_ls[[paste0("BE_eos_",fdr.cutoff)]] <- lm_eos_BE$lm %>% 
-  filter(FDR < fdr.cutoff & variable == "EOS.pct") %>% 
-  pull(gene)
-
-gene_ls[[paste0("BAL_neut_",fdr.cutoff)]] <- lm_neut_BAL$lm %>% 
-  filter(FDR < fdr.cutoff & variable == "NEUT.pct") %>% 
-  pull(gene)
-# gene_ls[[paste0("BE_neut_",fdr.cutoff)]] <- lm_neut_BE$lm %>% 
-#   filter(FDR < fdr.cutoff & variable == "NEUT.pct") %>% 
-#   pull(gene) ##No DEGs
-
-gene_ls[[paste0("BAL_feno_",fdr.cutoff)]] <- lm_feno_BAL$lm %>% 
-  filter(FDR < fdr.cutoff & variable == "FeNO") %>% 
-  pull(gene)
-gene_ls[[paste0("BE_feno_",fdr.cutoff)]] <- lm_feno_BE$lm %>% 
-  filter(FDR < fdr.cutoff & variable == "FeNO") %>% 
-  pull(gene)
-```
-
-#### Run enrichment
-
-```{r eval=FALSE}
-deg_H <- BIGprofiler(gene_ls, category = "H", ID = "ENSEMBL")
-deg_C2 <- BIGprofiler(gene_ls, category = "C2", 
-                      subcategory = "CP", ID = "ENSEMBL")
-deg_C5 <- BIGprofiler(gene_ls, category = "C5", 
-                      subcategory = "GO:BP", ID = "ENSEMBL")
-
-save(deg_H, deg_C2, deg_C5, file = "results/DEG_enrichment.RData")
-```
-
-```{r include=FALSE}
-load("results/DEG_enrichment.RData")
-```
-
-#### Summarise enrichment
-
-```{r echo=FALSE}
-deg_H %>% 
-  filter(FDR < 0.2) %>% 
-  count(group, size_group, gs_cat) %>% 
-  separate(group, into = c("Sample","Variable","FDR"), sep = "_") %>% 
-  mutate(gs_cat = factor(gs_cat, levels=c("H","C5")),
-         Variable = factor(Variable, levels = c("visit", "eos", "neut", "feno"))) %>% 
-  arrange(Sample, Variable, FDR, gs_cat) %>% 
-  kable(caption = "Hallmark enriched pathways (FDR 0.2)") %>% 
-  kable_styling(bootstrap_options = "striped", full_width = FALSE) %>% 
-  collapse_rows(1:2)
-```
-
-```{r echo=FALSE}
-deg_C5 %>% 
-  filter(FDR < 0.05) %>% 
-  count(group, size_group, gs_cat, gs_subcat) %>% 
-  separate(group, into = c("Sample","Variable","FDR"), sep = "_") %>% 
-  mutate(gs_cat = factor(gs_cat, levels=c("H","C5")),
-         Variable = factor(Variable, levels = c("visit", "eos", "neut", "feno"))) %>% 
-  arrange(Sample, Variable, FDR, gs_cat) %>% 
-  kable(caption = "GO enriched pathways (FDR 0.05)") %>% 
-  kable_styling(bootstrap_options = "striped", full_width = FALSE) %>% 
-  collapse_rows(1:2)
-```
-
-#### EOS FDR < 0.1
-
-```{r echo=FALSE}
-H.toPlot <- deg_H %>% 
-  filter(grepl("eos_0.1", group) & FDR < 0.2) %>% 
-  pull(pathway) %>% unique()
-
-deg_H %>% 
-  filter(grepl("eos_0.1", group) & pathway %in% H.toPlot) %>% 
-  mutate(Significance = case_when(FDR < 0.2 ~ "FDR < 0.2", 
-                                  TRUE ~ "NS")) %>% 
-  mutate(pathway = gsub("HALLMARK_","",pathway)) %>% 
-  
-  ggplot(aes(x=pathway, y=`k/K`)) +
-  geom_col(aes(fill=Significance)) +
-  theme_classic() +
-  facet_wrap(~group) +
-  coord_flip() +
-  scale_fill_manual(values = c("darkorange","grey80")) +
-  ggtitle("Hallmark")
-```
-
-#### NEUT FDR < 0.1
-
-```{r echo=FALSE}
-H.toPlot <- deg_H %>% 
-  filter(grepl("neut_0.1", group) & FDR < 0.2) %>% 
-  pull(pathway) %>% unique()
-
-deg_H %>% 
-  filter(grepl("neut_0.1", group) & pathway %in% H.toPlot) %>% 
-  mutate(Significance = case_when(FDR < 0.2 ~ "FDR < 0.2", 
-                                  TRUE ~ "NS")) %>% 
-  mutate(pathway = gsub("HALLMARK_","",pathway)) %>% 
-  
-  ggplot(aes(x=pathway, y=`k/K`)) +
-  geom_col(aes(fill=Significance)) +
-  theme_classic() +
-  facet_wrap(~group) +
-  coord_flip() +
-  scale_fill_manual(values = c("darkorange","grey80")) +
-  ggtitle("Hallmark")
-```
-
-#### FeNO FDR < 0.1
-
-```{r echo=FALSE}
-H.toPlot <- deg_H %>% 
-  filter(grepl("feno_0.1", group) & FDR < 0.2) %>% 
-  pull(pathway) %>% unique()
-
-deg_H %>% 
-  filter(grepl("feno_0.1", group) & pathway %in% H.toPlot) %>% 
-  mutate(Significance = case_when(FDR < 0.2 ~ "FDR < 0.2", 
-                                  TRUE ~ "NS")) %>% 
-  mutate(pathway = gsub("HALLMARK_","",pathway)) %>% 
-  
-  ggplot(aes(x=pathway, y=`k/K`)) +
-  geom_col(aes(fill=Significance)) +
-  theme_classic() +
-  facet_wrap(~group) +
-  coord_flip() +
-  scale_fill_manual(values = c("darkorange","grey80")) +
-  ggtitle("Hallmark")
-```
-
-Save signif genes to df
-
-```{r}
-gene.key <- dat.BAL$genes %>% 
-  bind_rows(dat.BE$genes) %>% 
-  select(geneName, hgnc_symbol) %>% 
-  distinct()
-
-gene_df <- plyr::ldply(gene_ls, rbind) %>% 
-  column_to_rownames(".id") %>% 
-  t() %>% as.data.frame() %>% 
-  rownames_to_column() %>% 
-  pivot_longer(-rowname, values_to = "geneName") %>% 
-  left_join(gene.key) %>% 
-  select(-geneName) %>% 
-  pivot_wider(values_from = "hgnc_symbol") %>% 
-  column_to_rownames() 
-
-write_csv(gene_df, file = "results/DEG_lists.csv", na = "")
-```
-
-# Save results
-
-```{r}
-save(lm_eos_BAL, lm_eos_BE, lm_feno_BAL,
-     lm_feno_BE, lm_visit_BAL, lm_visit_BE,
-     file = "results/model_fitting.RData")
 ```
 
 # R session
