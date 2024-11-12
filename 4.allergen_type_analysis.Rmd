@@ -1,0 +1,271 @@
+---
+title: "P337: CDH26 targeted analysis"
+author: "Kim Dill-McFarland, kadm@uw.edu"
+output:
+  html_document:
+    toc: yes
+    toc_depth: 3
+    toc_float:
+      collapsed: no
+date: "version `r format(Sys.time(), '%B %d, %Y')`"
+editor_options: 
+  chunk_output_type: console
+---
+
+# Background
+
+Response to review. Does allergen type and/or amount associate with transcriptomic responses?
+
+# Setup
+
+Load packages
+
+```{r message=FALSE, warning=FALSE}
+# Data manipulation and figures
+library(tidyverse)
+library(readxl)
+# Modeling
+library(limma)
+library(kimma)
+# Rmd pretty
+library(kableExtra)
+```
+
+Set seed
+
+```{r}
+set.seed(4389)
+```
+
+# Data
+## Load data
+
+Gene expression
+
+```{r}
+# Genes
+attach("data_clean/P337_BAL_data.RData")
+attach("data_clean/P337_BE_data.RData")
+```
+
+Recode visit
+
+```{r}
+dat.BAL$targets <- dat.BAL$targets %>% 
+  mutate(visit = case_when(visit == "V4" ~ "Pre",
+                           visit == "V5" ~ "Post"),
+         visit = factor(visit, levels = c("Pre","Post")))
+
+dat.BE$targets <- dat.BE$targets %>% 
+  mutate(visit = case_when(visit == "V4" ~ "Pre",
+                           visit == "V5" ~ "Post"),
+         visit = factor(visit, levels = c("Pre","Post")))
+```
+
+Add allergen details
+
+```{r}
+allergen <- read_excel("data_raw/addtl.data/allergen_detail.xlsx", sheet=1) %>% 
+  select(-1) %>% 
+  rename(donorID=`Subject ID`, dose=`Dose of antigen (CBU) for PD20`,
+         antigen=`Antigen used`) %>% 
+  mutate(donorID = gsub(" ","", donorID)) %>% 
+  mutate(antigen = recode(antigen, "Cat Hair"="cat",
+                          "Short Ragweed"="ragweed",
+                          "Housedust Mite"="mite"))
+```
+
+```{r}
+dat.BAL$targets <- dat.BAL$targets %>% 
+  left_join(allergen, by="donorID")
+dat.BE$targets <- dat.BE$targets %>% 
+  left_join(allergen, by="donorID")
+```
+
+## Select visit significant genes
+
+```{r}
+attach("results/gene_model_fitting.RData")
+visit.fdr.cutoff <- 0.3
+```
+
+#### BAL
+
+```{r}
+#Subset data to visit signif genes
+##List genes
+visit.signif.BAL <- lm_visit_BAL$lm %>% 
+  filter(FDR <= visit.fdr.cutoff & variable == "visit") %>% 
+  pull(gene)
+  
+##Subset voom data
+dat.BAL.visit <- dat.BAL
+
+dat.BAL.visit$targets <- dat.BAL.visit$targets %>% 
+  filter(visit == "Post")
+
+dat.BAL.visit$E <- as.data.frame(dat.BAL.visit$E) %>% 
+  rownames_to_column() %>% 
+  filter(rowname %in% visit.signif.BAL) %>% 
+  column_to_rownames() %>% 
+  select(all_of(dat.BAL.visit$targets$libID))
+
+dat.BAL.visit$genes <- as.data.frame(dat.BAL.visit$genes) %>% 
+  filter(geneName %in% visit.signif.BAL)
+
+rownames(dat.BAL.visit$weights) <- rownames(dat.BAL$E)
+colnames(dat.BAL.visit$weights) <- colnames(dat.BAL$E)
+dat.BAL.visit$weights <- as.data.frame(dat.BAL.visit$weights) %>% 
+  rownames_to_column() %>% 
+  filter(rowname %in% visit.signif.BAL) %>% 
+  column_to_rownames() %>% 
+  select(all_of(dat.BAL.visit$targets$libID))
+```
+
+#### BE
+
+```{r}
+#Subset data to visit signif genes
+##List genes
+visit.signif.BE <- lm_visit_BE$lm %>% 
+  filter(FDR <= visit.fdr.cutoff & variable == "visit") %>% 
+  pull(gene)
+  
+##Subset voom data
+dat.BE.visit <- dat.BE
+
+dat.BE.visit$targets <- dat.BE.visit$targets %>% 
+  filter(visit == "Post")
+
+dat.BE.visit$E <- as.data.frame(dat.BE.visit$E) %>% 
+  rownames_to_column() %>% 
+  filter(rowname %in% visit.signif.BE) %>% 
+  column_to_rownames() %>% 
+  select(all_of(dat.BE.visit$targets$libID))
+
+dat.BE.visit$genes <- as.data.frame(dat.BE.visit$genes) %>% 
+  filter(geneName %in% visit.signif.BE)
+
+rownames(dat.BE.visit$weights) <- rownames(dat.BE$E)
+colnames(dat.BE.visit$weights) <- colnames(dat.BE$E)
+dat.BE.visit$weights <- as.data.frame(dat.BE.visit$weights) %>% 
+  rownames_to_column() %>% 
+  filter(rowname %in% visit.signif.BE) %>% 
+  column_to_rownames() %>% 
+  select(all_of(dat.BE.visit$targets$libID))
+```
+
+# Post allergen challenge
+## Allergen model
+
+Model allergen type and concentration.
+
+```{r echo=FALSE}
+load("results/gene_lm_allergen.RData")
+```
+
+#### BAL
+
+```{r eval=FALSE}
+bal_interact <-kmFit(dat.BAL.visit, patientID = "donorID",
+                     model="~antigen*dose",
+                     run_lm = TRUE, 
+                     run_contrast = TRUE, contrast_var = c("antigen","antigen:dose"),
+                     metrics=TRUE, use_weights = TRUE)
+```
+
+#### BE
+
+```{r eval=FALSE}
+be_interact <-kmFit(dat.BE.visit, patientID = "donorID",
+                    model="~antigen*dose",
+                    run_lm = TRUE, 
+                    run_contrast = TRUE, contrast_var = c("antigen","antigen:dose"),
+                    metrics=TRUE, use_weights = TRUE)
+```
+
+```{r eval=FALSE}
+save(bal_interact, be_interact, file="results/gene_lm_allergen.RData")
+```
+
+### Summarize allergen models
+
+```{r echo=FALSE}
+summarise_kmFit(bal_interact$lm.contrast) %>% 
+  kable(caption = "Allergen type and dose in BAL, Post samples") %>% 
+  kable_styling(bootstrap_options = "striped", full_width = FALSE)
+
+summarise_kmFit(be_interact$lm.contrast) %>% 
+  kable(caption = "Allergen type and dose in BE, Post samples") %>% 
+  kable_styling(bootstrap_options = "striped", full_width = FALSE)
+```
+
+### Overlap allergen and other genes of interest
+
+```{r}
+load("results/signif_gene_lists.RData")
+
+bal.genes <- bal_interact$lm.contrast %>% 
+  filter(FDR < 0.1) %>% pull(gene) %>% unique()
+
+be.genes <- be_interact$lm.contrast %>% 
+  filter(FDR < 0.1) %>% pull(gene) %>% unique()
+
+# real names
+dat.BAL.visit$genes %>% filter(geneName %in% bal.genes)
+dat.BE.visit$genes %>% filter(geneName %in% be.genes)
+```
+
+```{r}
+overlap.df <- data.frame()
+for(sig in ls(pattern="BAL_")){
+  overlap.temp <- intersect(paste0("BAL_", bal.genes),
+                            get(sig))
+  overlap.df <- data.frame(
+    sample = "BAL",
+    signif = sig,
+    overlap = length(overlap.temp)
+    # overlap.genes = overlap.temp
+  ) %>% 
+    bind_rows(overlap.df)
+}
+
+for(sig in ls(pattern="BE_")){
+  overlap.temp <- intersect(paste0("BE_", be.genes),
+                            get(sig))
+  overlap.df <- data.frame(
+    sample = "BAL",
+    signif = sig,
+    overlap = length(overlap.temp)
+    # overlap.genes = overlap.temp
+  ) %>% 
+    bind_rows(overlap.df)
+}
+```
+
+# EOS and FeNO
+
+```{r}
+summary(lm(EOS.pct ~ antigen*dose, data=dat.BE.visit$targets))
+summary(lm(EOS.pct ~ antigen, data=dat.BE.visit$targets))
+kruskal.test(EOS.pct ~ antigen, data=dat.BE.visit$targets)
+summary(lm(FeNO.PreBro_V5 ~ antigen*dose, data=dat.BE.visit$targets))
+summary(lm(FeNO.PreBro_V5 ~ antigen, data=dat.BE.visit$targets))
+```
+
+```{r}
+dat.BE.visit$targets %>% 
+  drop_na(antigen) %>% 
+ggplot(aes(x=antigen, y=EOS.pct)) +
+  geom_boxplot() +
+  geom_jitter(aes(color=donorID), width=0.15, height=0)+
+  theme_classic()
+```
+
+# R session
+
+```{r}
+sessionInfo()
+```
+
+***
