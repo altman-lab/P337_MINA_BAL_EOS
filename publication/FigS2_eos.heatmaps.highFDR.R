@@ -80,16 +80,15 @@ corr.up.R <- as.data.frame(corr.up$r) %>%
 
 #Reorder
 load("publication/heatmap_dend.RData")
-
-row_ord_up_key <- c(rep(1, length(row_ord_up$`1`)), 
-                    rep(2, length(row_ord_up$`4`)), 
-                    rep(3, length(row_ord_up$`3`)), 
-                    rep(4, length(row_ord_up$`2`)))
-row_ord_up_format <- c(row_ord_up$`1`,row_ord_up$`4`,
-                       row_ord_up$`3`,row_ord_up$`2`)
-# row_ord_up_format <- unlist(row_ord_up)
-corr.up.R <- corr.up.R[row_ord_up_format,]
-# corr.up.R <- corr.up.R[c(1:8, 50:69, 38:49, 9:37),]
+row_ord_up_key <- c(rep(1, length(row_ord_up$`2`)), 
+                    rep(2, length(row_ord_up$`3`)), 
+                    rep(3, length(row_ord_up$`1`)),
+                    rep(4, length(row_ord_up$`4`)))
+# row_ord_up_format <- c(row_ord_up$`2`,
+#                        row_ord_up$`3`,
+#                        row_ord_up$`1`,
+#                        row_ord_up$`4`)
+corr.up.R <- corr.up.R[row_name_up,]
 
 #### Heatmap - UP ####
 #color
@@ -97,18 +96,21 @@ col_fun = colorRamp2(c(-0,0.5,1), c("white", "orange","darkred"))
 
 #Add cluster names
 # row_order(hm.up1) %>% plyr::ldply(., data.frame) %>%
-ord <- data.frame(`.id`=row_ord_up_key) %>% 
+ord <- data.frame(
+  `.id`=row_ord_up_key,
+  `X..i..`=row_ord_up_key) %>% 
   mutate(name = recode(`.id`,
-                       "1"="Cluster 1: Eosinophil (8 genes)",
-                       "4"="Cluster 2: Dendritic and Lymphocytes (20 genes)",
-                       "3"="Cluster 3: Basophil (12 genes)",
-                       "2"="Cluster 4: Eosinophil and Mast cells (29 genes)"
+                       "4"="Cluster 4: Eosinophil (8 genes)",
+                       "3"="Cluster 3: Dendritic and Lymphocytes (20 genes)",
+                       "2"="Cluster 2: Basophil (12 genes)",
+                       "1"="Cluster 1: Eosinophil and Mast cells (29 genes)"
   )) %>% 
+  arrange(`X..i..`) %>% 
   mutate(color=recode(`.id`,
-                      "1"="#44AA99",
-                      "2"="#88CCEE",
+                      "1"="#DDCC77",
+                      "2"="#44AA99",
                       "3"="#882255",
-                      "4"="#DDCC77"))
+                      "4"="#88CCEE"))
 ord %>% count(name)
 
 col.vec <- ord$color
@@ -138,6 +140,7 @@ hm.up <- Heatmap(corr.up.R,
                  #Clustering
                  cluster_rows = FALSE,
                  row_split = row_ord_up_key,
+                 row_dend_reorder = FALSE,
                  #Gene labels
                  row_names_gp = gpar(fontsize = 8), 
                  column_names_gp = gpar(fontsize = 8),

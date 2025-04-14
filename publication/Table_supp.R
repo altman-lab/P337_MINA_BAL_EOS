@@ -153,9 +153,9 @@ write.xlsx(lm.ls, file = "publication/TableS4_linear.models.xlsx")
 #### Table S3 Counts ####
 count.ls <- list()
 count.ls[["BAL"]] <- as.data.frame(dat.BAL$E) %>% 
-  rownames("gene")
+  rownames_to_column("gene")
 count.ls[["BE"]] <- as.data.frame(dat.BE$E) %>% 
-  rownames("gene")
+  rownames_to_column("gene")
 
 write.xlsx(count.ls, file = "publication/TableS3_voom.log2cpm.xlsx")
 

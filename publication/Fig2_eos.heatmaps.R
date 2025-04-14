@@ -4,6 +4,7 @@ library(Hmisc)
 library(tidyverse)
 library(patchwork)
 library(ComplexHeatmap)
+library(dendextend)
 library(circlize)
 select <- dplyr::select
 
@@ -102,6 +103,7 @@ hm.up1 <- Heatmap(corr.up.R,
                   #Clustering
                   row_km = 4, #column_km = 3,
                   cluster_rows = TRUE,
+                  row_dend_reorder = FALSE,
                   # row_split = 4,
                   #Gene labels
                   row_names_gp = gpar(fontsize = 8), 
@@ -113,25 +115,35 @@ set.seed(42)
 hm.up1 <- draw(hm.up1, heatmap_legend_side = "bottom",
                padding = unit(c(5, 1, 1, 1), "mm"))
 
+#Rotate top branch
+row_ord_up <- row_order(hm.up1)
+row_ord_up_key <- c(rep(1, length(row_ord_up$`2`)), 
+                    rep(2, length(row_ord_up$`4`)), 
+                    rep(3, length(row_ord_up$`3`)),
+                    rep(4, length(row_ord_up$`1`)))
+row_ord_up_format <- c(row_ord_up$`2`,
+                       row_ord_up$`4`,
+                       row_ord_up$`3`,
+                       row_ord_up$`1`)
+corr.up.R <- corr.up.R[row_ord_up_format,]
+
 #Add cluster names
-ord <- row_order(hm.up1) %>% plyr::ldply(., data.frame) %>%
+ord <- data.frame(
+  `.id`=row_ord_up_key,
+  `X..i..`=row_ord_up_key) %>% 
   mutate(name = recode(`.id`,
-                       # "1"="Cluster 1: Eosinophil (9 genes)",
-                       # "2"="Cluster 2: Dendritic (33 genes)",
-                       # "3"="Cluster 3: Eosinophil, B, Mast, NK (27 genes)"
-                       "1"="Cluster 1: Eosinophil (8 genes)",
-                       "2"="Cluster 2: Dendritic and Lymphocytes (20 genes)",
-                       "3"="Cluster 3: Basophil (12 genes)",
-                       "4"="Cluster 4: Eosinophil and Mast cells (29 genes)"
+                       "4"="Cluster 4: Eosinophil (8 genes)",
+                       "1"="Cluster 3: Dendritic and Lymphocytes (20 genes)",
+                       "3"="Cluster 2: Basophil (12 genes)",
+                       "2"="Cluster 1: Eosinophil and Mast cells (29 genes)"
   )) %>% 
   arrange(`X..i..`) %>% 
   mutate(color=recode(`.id`,
-                      "1"="#44AA99",
+                      "1"="#882255",
                       "2"="#DDCC77",
-                      "3"="#882255",
+                      "3"="#44AA99",
                       "4"="#88CCEE"))
 ord %>% count(name)
-
 col.vec <- ord$color
 names(col.vec) <- ord$name
 
@@ -147,7 +159,8 @@ hm.up <- Heatmap(corr.up.R,
                  row_title_gp = gpar(fontsize = 10),
                  column_title_gp = gpar(fontsize = 10),
                  #Clustering
-                 row_km = 4, #column_km = 3, 
+                 cluster_rows = TRUE,
+                 row_split = row_ord_up_key,
                  #Gene labels
                  row_names_gp = gpar(fontsize = 8), 
                  column_names_gp = gpar(fontsize = 8),
@@ -165,6 +178,7 @@ hm.up.d <- draw(hm.up, heatmap_legend_side = "bottom",
 #Save tree for supplemental heatmap
 row_dend_up <- row_dend(hm.up.d)
 row_ord_up <- row_order(hm.up.d)
+row_name_up <- rownames(corr.up.R)[unlist(row_ord_up)]
 #
 #### Down genes correlation ####
 hm.mat.dn <- dat.all.rename %>% 
@@ -224,26 +238,39 @@ set.seed(42)
 hm.dn1 <- draw(hm.dn1, heatmap_legend_side = "bottom",
                 padding = unit(c(5, 1, 1, 1), "mm"))
 
+#Rotate top branch
+row_ord_dn <- row_order(hm.dn1)
+row_ord_dn_key <- c(rep(1, length(row_ord_dn$`2`)), 
+                    rep(2, length(row_ord_dn$`3`)), 
+                    rep(3, length(row_ord_dn$`1`)))
+row_ord_dn_format <- c(row_ord_dn$`2`,
+                       row_ord_dn$`3`,
+                       row_ord_dn$`1`)
+corr.dn.R <- corr.dn.R[row_ord_dn_format,]
+
 #Add cluster names
-ord2 <- row_order(hm.dn1) %>% plyr::ldply(., data.frame) %>%
+ord2 <- data.frame(
+  `.id`=row_ord_dn_key,
+  `X..i..`=c(rep(1, length(row_ord_dn$`2`)), 
+             rep(2, length(row_ord_dn$`3`)), 
+             rep(3, length(row_ord_dn$`1`)))) %>% 
   mutate(name = recode(`.id`,
-                       "1"="Cluster 1: Neutrophil (11 genes)",
-                       "2"="Cluster 2: Memory T and Macrophage (15 genes)",
-                       "3"="Cluster 3: Macrophage and neutrophil (10 genes)"  )) %>% 
+                       "2"="Cluster 1: Macrophage and neutrophil (10 genes)",
+                       "1"="Cluster 2: Memory T and Macrophage (15 genes)",
+                       "3"="Cluster 3: Neutrophil (11 genes)"
+  )) %>% 
   arrange(`X..i..`) %>% 
   mutate(color=recode(`.id`,
                       "1"="#44AA99",
                       "2"="#DDCC77",
-                      "3"="#882255",
-                      "4"="#88CCEE"))
-ord2 %>% count(name)
+                      "3"="#882255"))
 
+ord2 %>% count(name)
 col.vec2 <- ord2$color
 names(col.vec2) <- ord2$name
 
 row.anno2 <- rowAnnotation(` ` = ord2$name,
                           col = list(` ` = col.vec2))
-
 set.seed(42)
 hm.dn <- Heatmap(corr.dn.R, 
                  #Titles
@@ -253,7 +280,8 @@ hm.dn <- Heatmap(corr.dn.R,
                  row_title_gp = gpar(fontsize = 10),
                  column_title_gp = gpar(fontsize = 10),
                  #Clustering
-                 row_km = 3, #column_km = 3, 
+                 cluster_rows = TRUE,
+                 row_split = row_ord_dn_key,
                  #Gene labels
                  row_names_gp = gpar(fontsize = 8), 
                  column_names_gp = gpar(fontsize = 8),
@@ -293,8 +321,9 @@ pdf(file="publication/Fig2B_eos.heatmap.dn.pdf",
 hm.dn.d
 dev.off()
 
-save(row_dend_up, row_dend_dn, 
-     row_ord_up, row_ord_dn,
+save(row_dend_up, 
+     row_ord_up, row_name_up,
+     row_ord_up_key, row.anno, row_ord_up_format,
      file="publication/heatmap_dend.RData")
 
 #### Mean corr - UP ####
